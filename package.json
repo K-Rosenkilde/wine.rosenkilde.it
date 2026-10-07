@@ -1,0 +1,21 @@
+{
+  "name": "wine-rosenkilde",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Vin-dagbog: multi-user wine tasting + purchase log with bottle photos and AI label reading (Cloudflare Workers + D1 + R2)",
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "migrate": "wrangler d1 migrations apply wine --remote",
+    "migrate:local": "wrangler d1 migrations apply wine --local",
+    "tail": "wrangler tail"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.131.0",
+    "hono": "^4.6.14"
+  },
+  "devDependencies": {
+    "wrangler": "^4.0.0"
+  }
+}

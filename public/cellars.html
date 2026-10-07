@@ -1,0 +1,138 @@
+<!doctype html>
+<html lang="da">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#1a0f14" />
+    <meta name="robots" content="noindex" />
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <link rel="icon" href="/icon.svg" type="image/svg+xml" />
+    <link rel="apple-touch-icon" href="/icon.svg" />
+    <link rel="stylesheet" href="/app.css" />
+    <title>Kældre · Vin-dagbog</title>
+  </head>
+  <body>
+    <h1>🍷 Dine vinkældre</h1>
+    <p class="muted small" style="margin-top: -6px">
+      En kælder er en fælles vinliste. Del den med familie eller vinklubben via et invitationslink —
+      hver person har sine egne smagsnoter og køb.
+    </p>
+
+    <div id="list"></div>
+    <div id="msg"></div>
+
+    <form class="card" id="createForm">
+      <label for="newName">Opret ny kælder</label>
+      <div class="row">
+        <input type="text" id="newName" placeholder="f.eks. Klaus' vine" />
+        <button class="btn" type="submit" style="flex: 0 0 auto">Opret</button>
+      </div>
+    </form>
+
+    <form class="card" id="joinForm">
+      <label for="joinCode">Bliv medlem med en invitationskode</label>
+      <div class="row">
+        <input type="text" id="joinCode" placeholder="indsæt kode" />
+        <button class="btn secondary" type="submit" style="flex: 0 0 auto">Tilmeld</button>
+      </div>
+    </form>
+
+    <script src="/app.js"></script>
+    <script src="/session.js"></script>
+    <script>
+      function showMsg(kind, text) {
+        const box = document.getElementById("msg");
+        box.innerHTML = "";
+        box.appendChild(el("div", { class: "banner " + kind, text }));
+      }
+      function openCellar(id) {
+        localStorage.setItem("cellarId", String(id));
+        location.href = "/?cellar=" + id;
+      }
+
+      async function manage(cellarId, box) {
+        if (box.childNodes.length) return (box.innerHTML = "");
+        const c = await apiGet("/api/cellars/" + cellarId);
+        const render = (code) => {
+          box.innerHTML = "";
+          const link = location.origin + "/join?code=" + code;
+          box.appendChild(el("div", { class: "small muted", text: "Invitationslink — send det til dem der skal være med:" }));
+          box.appendChild(el("div", { class: "invite-box" }, [
+            el("code", { text: link }),
+            el("button", { class: "btn small secondary", type: "button", text: "Kopiér",
+              onclick: (e) => navigator.clipboard.writeText(link).then(() => (e.target.textContent = "Kopieret ✓")) }),
+          ]));
+          box.appendChild(el("button", { class: "linkbtn small", type: "button", style: "margin:8px 0 0", text: "Lav nyt link (det gamle stopper med at virke)",
+            onclick: async () => render((await apiSend("/api/cellars/" + cellarId + "/invite/regenerate", "POST")).inviteCode) }));
+          box.appendChild(el("div", { class: "small muted", style: "margin-top:12px", text: "Medlemmer" }));
+          for (const m of c.members) {
+            box.appendChild(el("div", { class: "row small", style: "align-items:center;margin-top:4px" }, [
+              el("span", { text: (m.name || m.email) + (m.role === "owner" ? " (ejer)" : "") }),
+              m.role === "owner" ? null : el("button", { class: "linkbtn danger", type: "button", style: "flex:0 0 auto", text: "Fjern",
+                onclick: async () => { await apiSend("/api/cellars/" + cellarId + "/members/remove", "POST", { userId: m.id }); box.innerHTML = ""; manage(cellarId, box); } }),
+            ]));
+          }
+          box.appendChild(el("button", { class: "btn danger small", type: "button", style: "margin-top:14px", text: "Slet kælder",
+            onclick: async () => {
+              if (!confirm("Slet " + c.name + " med alle vine, billeder og noter? Det kan ikke fortrydes.")) return;
+              await apiSend("/api/cellars/" + cellarId, "DELETE");
+              if (Number(localStorage.getItem("cellarId")) === cellarId) localStorage.removeItem("cellarId");
+              load();
+            } }));
+        };
+        render(c.inviteCode);
+      }
+
+      async function load() {
+        const box = document.getElementById("list");
+        box.innerHTML = "";
+        const cellars = await apiGet("/api/cellars");
+        if (!cellars.length) {
+          box.appendChild(el("p", { class: "muted", text: "Ingen kældre endnu — opret din første herunder." }));
+          return;
+        }
+        for (const c of cellars) {
+          const extra = el("div", { style: "flex-basis:100%" });
+          const item = el("div", { class: "list-item", style: "flex-wrap:wrap" }, [
+            el("div", { style: "flex:1", onclick: () => openCellar(c.id) }, [
+              el("div", { text: c.name, style: "font-weight:700" }),
+              el("div", { class: "meta", text: c.wines + " vine · " + c.members + " medlem" + (c.members === 1 ? "" : "mer") }),
+            ]),
+            c.role === "owner"
+              ? el("button", { class: "btn small secondary", type: "button", text: "Del / styr", onclick: () => manage(c.id, extra) })
+              : el("button", { class: "linkbtn danger small", type: "button", text: "Forlad", onclick: async () => {
+                  if (!confirm("Forlad " + c.name + "?")) return;
+                  await apiSend("/api/cellars/" + c.id + "/members/remove", "POST", { userId: Session.user.id });
+                  load();
+                } }),
+            extra,
+          ]);
+          box.appendChild(item);
+        }
+      }
+
+      document.getElementById("createForm").addEventListener("submit", async (e) => {
+        e.preventDefault();
+        const name = document.getElementById("newName").value.trim();
+        if (!name) return showMsg("err", "Giv kælderen et navn.");
+        try {
+          openCellar((await apiSend("/api/cellars", "POST", { name })).id);
+        } catch (err) {
+          showMsg("err", err.message);
+        }
+      });
+      document.getElementById("joinForm").addEventListener("submit", async (e) => {
+        e.preventDefault();
+        const code = document.getElementById("joinCode").value.trim().replace(/.*code=/, "");
+        if (!code) return showMsg("err", "Indsæt en invitationskode.");
+        try {
+          openCellar((await apiSend("/api/join", "POST", { code })).cellarId);
+        } catch (err) {
+          showMsg("err", err.message);
+        }
+      });
+
+      Session.onReady(load, { requireCellar: false });
+    </script>
+  </body>
+</html>

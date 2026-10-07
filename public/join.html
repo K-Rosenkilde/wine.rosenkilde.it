@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="da">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#1a0f14" />
+    <meta name="robots" content="noindex" />
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <link rel="icon" href="/icon.svg" type="image/svg+xml" />
+    <link rel="apple-touch-icon" href="/icon.svg" />
+    <link rel="stylesheet" href="/app.css" />
+    <title>Bliv medlem · Vin-dagbog</title>
+  </head>
+  <body>
+    <div class="auth-wrap">
+      <h1>🤝 Bliv medlem af en kælder</h1>
+      <div id="msg"></div>
+      <div class="card center" id="card"><p class="muted">Tjekker din invitation…</p></div>
+    </div>
+
+    <script src="/app.js"></script>
+    <script src="/session.js"></script>
+    <script>
+      const code = qs("code");
+      function msg(kind, text) {
+        const box = document.getElementById("msg");
+        box.innerHTML = "";
+        box.appendChild(el("div", { class: "banner " + kind, text }));
+      }
+      async function run() {
+        const card = document.getElementById("card");
+        if (!code) {
+          card.innerHTML = "";
+          return msg("err", "Invitationslinket mangler sin kode.");
+        }
+        try {
+          const r = await apiSend("/api/join", "POST", { code });
+          localStorage.setItem("cellarId", String(r.cellarId));
+          card.innerHTML = "";
+          card.appendChild(el("p", {}, ["Du er nu medlem af ", el("strong", { text: r.name })]));
+          card.appendChild(el("a", { class: "btn block", href: "/?cellar=" + r.cellarId, text: "Åbn kælderen →" }));
+          setTimeout(() => (location.href = "/?cellar=" + r.cellarId), 1200);
+        } catch (e) {
+          card.innerHTML = "";
+          msg("err", e.message);
+        }
+      }
+      Session.onReady(run, { requireCellar: false });
+    </script>
+  </body>
+</html>

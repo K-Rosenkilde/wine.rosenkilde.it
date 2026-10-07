@@ -1,0 +1,38 @@
+# Cloudflare Worker config for Vin-dagbog (wine.rosenkilde.it).
+#
+# One Worker serves the static frontend (public/) via the assets binding and the
+# JSON API (/api/*) via Hono. Data lives in D1, bottle photos in R2.
+#
+# First-time setup (see README):
+#   npx wrangler d1 create wine                 # paste database_id below
+#   npx wrangler r2 bucket create wine-photos
+#   npx wrangler secret put ANTHROPIC_API_KEY
+#   npm run migrate && npm run deploy
+
+name = "wine"
+main = "worker/index.js"
+compatibility_date = "2025-06-01"
+compatibility_flags = ["nodejs_compat"]
+workers_dev = true
+
+routes = [
+  { pattern = "wine.rosenkilde.it", custom_domain = true }
+]
+
+[assets]
+directory = "./public"
+binding = "ASSETS"
+not_found_handling = "none"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "wine"
+database_id = "f7db5f4e-3fae-41f6-882c-b1e54de38fed"
+migrations_dir = "migrations"
+
+[[r2_buckets]]
+binding = "PHOTOS"
+bucket_name = "wine-photos"
+
+[observability]
+enabled = true

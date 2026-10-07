@@ -1,0 +1,131 @@
+<!doctype html>
+<html lang="da">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#1a0f14" />
+    <meta name="robots" content="noindex" />
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <link rel="icon" href="/icon.svg" type="image/svg+xml" />
+    <link rel="apple-touch-icon" href="/icon.svg" />
+    <link rel="stylesheet" href="/app.css" />
+    <title>Ny vin · Vin-dagbog</title>
+  </head>
+  <body>
+    <header class="topbar">
+      <h1>📷 Ny vin</h1>
+      <a class="small" href="/">← Alle vine</a>
+    </header>
+
+    <div class="card" id="photoCard">
+      <input type="file" id="file" accept="image/*" capture="environment" hidden />
+      <input type="file" id="fileGallery" accept="image/*" hidden />
+      <div id="photoArea">
+        <button class="btn block camera-btn" type="button" id="camBtn">📷<span>Tag billede af etiketten</span></button>
+        <div class="row" style="margin-top: 10px">
+          <button class="btn secondary small" type="button" id="galBtn">Vælg fra billeder</button>
+          <button class="btn secondary small" type="button" id="skipBtn">Uden billede</button>
+        </div>
+      </div>
+      <div id="status"></div>
+    </div>
+
+    <form id="form" style="display: none">
+      <div class="card">
+        <h2 style="margin-top: 0">Vinen</h2>
+        <div class="row" id="wineFields"></div>
+      </div>
+
+      <div class="card">
+        <details open>
+          <summary>🍷 Smagsnote</summary>
+          <div class="row" id="tastingFields"></div>
+        </details>
+      </div>
+
+      <div class="card">
+        <details id="buyDetails">
+          <summary>🛒 Jeg har købt den</summary>
+          <div class="row" id="purchaseFields"></div>
+        </details>
+      </div>
+
+      <div id="msg"></div>
+      <button class="btn block" type="submit" id="saveBtn">Gem vin</button>
+    </form>
+
+    <script src="/app.js"></script>
+    <script src="/session.js"></script>
+    <script src="/wineform.js"></script>
+    <script>
+      const $ = (id) => document.getElementById(id);
+      let photoIds = [];
+      let readTasting, readPurchase;
+
+      function status(kind, content) {
+        const box = $("status");
+        box.innerHTML = "";
+        if (content) box.appendChild(el("div", { class: "banner " + kind }, content));
+      }
+
+      function showForm(values) {
+        renderWineFields($("wineFields"), values || {});
+        readTasting = renderTastingForm($("tastingFields"));
+        readPurchase = renderPurchaseForm($("purchaseFields"));
+        $("form").style.display = "";
+      }
+
+      async function onPhoto(file) {
+        if (!file) return;
+        const preview = el("img", { class: "photo-preview", src: URL.createObjectURL(file), alt: "" });
+        $("photoArea").innerHTML = "";
+        $("photoArea").appendChild(preview);
+        status("info", [el("span", { class: "spinner" }), "  Gemmer billedet og læser etiketten…"]);
+        try {
+          const r = await apiUpload("/api/scan?" + Session.q(), await photoForm(file, "forside"));
+          photoIds.push(r.photoId);
+          if (r.draft) status("ok", ["✓ Billedet er gemt og etiketten aflæst — tjek felterne og ret hvis noget er forkert."]);
+          else status("info", ["✓ Billedet er gemt. " + (r.aiError || "Udfyld felterne selv.")]);
+          showForm(r.draft);
+        } catch (e) {
+          status("err", ["Kunne ikke gemme billedet: " + e.message]);
+          showForm();
+        }
+      }
+
+      function init() {
+        $("camBtn").onclick = () => $("file").click();
+        $("galBtn").onclick = () => $("fileGallery").click();
+        $("file").onchange = (e) => onPhoto(e.target.files[0]);
+        $("fileGallery").onchange = (e) => onPhoto(e.target.files[0]);
+        $("skipBtn").onclick = () => { $("photoCard").style.display = "none"; showForm(); };
+
+        $("form").addEventListener("submit", async (e) => {
+          e.preventDefault();
+          const wine = readWineFields($("wineFields"));
+          if (!wine.name && !wine.producer) {
+            $("msg").innerHTML = "";
+            return $("msg").appendChild(el("div", { class: "banner err", text: "Skriv i det mindste vinens navn eller producent." }));
+          }
+          $("saveBtn").disabled = true;
+          try {
+            const { id } = await apiSend("/api/wines", "POST", {
+              cellarId: Session.cellarId,
+              ...wine,
+              photoIds,
+              tasting: readTasting(),
+              purchase: $("buyDetails").open ? readPurchase() : null,
+            });
+            location.href = "/wine?id=" + id;
+          } catch (err) {
+            $("msg").innerHTML = "";
+            $("msg").appendChild(el("div", { class: "banner err", text: err.message }));
+            $("saveBtn").disabled = false;
+          }
+        });
+      }
+
+      Session.onReady(init);
+    </script>
+  </body>
+</html>

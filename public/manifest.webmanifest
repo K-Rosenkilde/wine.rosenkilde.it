@@ -1,0 +1,12 @@
+{
+  "name": "Vin-dagbog",
+  "short_name": "Vin",
+  "description": "Gem vine du smager og køber — med foto af flasken.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#1a0f14",
+  "theme_color": "#1a0f14",
+  "icons": [{ "src": "/icon.svg", "type": "image/svg+xml", "sizes": "any", "purpose": "any" }]
+}

@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="da">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#1a0f14" />
+    <meta name="robots" content="noindex" />
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <link rel="icon" href="/icon.svg" type="image/svg+xml" />
+    <link rel="apple-touch-icon" href="/icon.svg" />
+    <link rel="stylesheet" href="/app.css" />
+    <title>Vin-dagbog</title>
+  </head>
+  <body>
+    <header class="topbar">
+      <h1>🍷 Vin-dagbog</h1>
+      <a class="small" id="exportLink" href="#">Eksportér CSV</a>
+    </header>
+
+    <div class="toolbar">
+      <input type="search" id="q" placeholder="Søg navn, producent, drue, område…" />
+      <select id="fColor"><option value="">Alle typer</option></select>
+      <select id="fCountry"><option value="">Alle lande</option></select>
+      <select id="fBought">
+        <option value="">Smagt + købt</option>
+        <option value="1">Kun købte</option>
+        <option value="0">Ikke købt</option>
+      </select>
+      <select id="sort">
+        <option value="new">Nyeste først</option>
+        <option value="rating">Bedst bedømt</option>
+        <option value="tasted">Senest smagt</option>
+        <option value="vintage">Årgang</option>
+        <option value="name">Navn A–Å</option>
+      </select>
+    </div>
+
+    <div id="count" class="small muted" style="margin-bottom: 8px"></div>
+    <div id="list"></div>
+
+    <a class="fab" href="/add">📷 Ny vin</a>
+
+    <script src="/app.js"></script>
+    <script src="/session.js"></script>
+    <script>
+      let wines = [];
+      const $ = (id) => document.getElementById(id);
+
+      function fill(select, values) {
+        for (const v of values) select.appendChild(el("option", { value: v, text: COLOR_LABELS[v] || v }));
+      }
+
+      function render() {
+        const q = $("q").value.trim().toLowerCase();
+        const color = $("fColor").value, country = $("fCountry").value, bought = $("fBought").value;
+        let rows = wines.filter((w) => {
+          if (color && w.color !== color) return false;
+          if (country && w.country !== country) return false;
+          if (bought === "1" && !w.bought) return false;
+          if (bought === "0" && w.bought) return false;
+          if (q) {
+            const hay = [w.name, w.producer, w.grapes, w.region, w.country, w.appellation, w.vintage].join(" ").toLowerCase();
+            if (!q.split(/\s+/).every((t) => hay.includes(t))) return false;
+          }
+          return true;
+        });
+        const sort = $("sort").value;
+        const by = {
+          new: (a, b) => b.id - a.id,
+          rating: (a, b) => (b.avg_rating ?? -1) - (a.avg_rating ?? -1),
+          tasted: (a, b) => String(b.last_tasted || "").localeCompare(String(a.last_tasted || "")),
+          vintage: (a, b) => (b.vintage ?? 0) - (a.vintage ?? 0),
+          name: (a, b) => a.name.localeCompare(b.name, "da"),
+        }[sort];
+        rows = rows.sort(by);
+
+        $("count").textContent = rows.length + " af " + wines.length + " vine";
+        const box = $("list");
+        box.innerHTML = "";
+        if (!wines.length) {
+          box.appendChild(el("div", { class: "card center" }, [
+            el("p", { text: "Ingen vine endnu." }),
+            el("a", { class: "btn", href: "/add", text: "📷 Tag et billede af din første flaske" }),
+          ]));
+          return;
+        }
+        for (const w of rows) {
+          const thumb = w.cover_id
+            ? el("img", { class: "thumb", src: "/api/photos/" + w.cover_id + "?size=thumb", alt: "", loading: "lazy" })
+            : el("div", { class: "thumb", text: "🍷" });
+          const meta = [w.producer, w.vintage, w.region || w.country].filter(Boolean).join(" · ");
+          box.appendChild(el("a", { class: "wine-item", href: "/wine?id=" + w.id }, [
+            thumb,
+            el("div", { class: "info" }, [
+              el("div", { class: "title" }, [w.color ? el("span", { class: "dot", style: "background:" + COLOR_DOTS[w.color] }) : null, w.name]),
+              el("div", { class: "meta", text: meta }),
+              w.grapes ? el("div", { class: "meta", text: w.grapes }) : null,
+            ]),
+            el("div", { class: "right" }, [
+              w.avg_rating !== null ? el("div", { class: "stars", text: stars(w.avg_rating) }) : el("div", { class: "muted", text: "ikke bedømt" }),
+              w.bought ? el("div", { class: "badge", text: "Købt " + w.bought + (w.last_price !== null ? " · " + money(w.last_price, w.last_currency) : "") }) : null,
+            ]),
+          ]));
+        }
+      }
+
+      async function load() {
+        $("exportLink").href = "/api/export.csv?" + Session.q();
+        wines = await apiGet("/api/wines?" + Session.q());
+        fill($("fColor"), [...new Set(wines.map((w) => w.color).filter(Boolean))]);
+        fill($("fCountry"), [...new Set(wines.map((w) => w.country).filter(Boolean))].sort((a, b) => a.localeCompare(b, "da")));
+        for (const id of ["q", "fColor", "fCountry", "fBought", "sort"]) $(id).addEventListener("input", render);
+        render();
+      }
+
+      Session.onReady(load);
+    </script>
+  </body>
+</html>

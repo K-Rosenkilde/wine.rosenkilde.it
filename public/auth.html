@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="da">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#1a0f14" />
+    <meta name="robots" content="noindex" />
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <link rel="icon" href="/icon.svg" type="image/svg+xml" />
+    <link rel="apple-touch-icon" href="/icon.svg" />
+    <link rel="stylesheet" href="/app.css" />
+    <title>Log ind · Vin-dagbog</title>
+  </head>
+  <body>
+    <div class="auth-wrap">
+      <h1>🍷 Vin-dagbog</h1>
+      <div class="tabs">
+        <button id="tabLogin" class="active" type="button">Log ind</button>
+        <button id="tabSignup" type="button">Opret konto</button>
+      </div>
+      <div id="msg"></div>
+      <form class="card" id="form">
+        <div id="nameField" style="display: none">
+          <label for="name">Dit navn</label>
+          <input type="text" id="name" placeholder="f.eks. Klaus" autocomplete="name" />
+        </div>
+        <label for="email">E-mail</label>
+        <input type="email" id="email" autocomplete="email" placeholder="dig@eksempel.dk" />
+        <label for="password">Adgangskode</label>
+        <input type="password" id="password" autocomplete="current-password" placeholder="••••••••" />
+        <button class="btn block" id="submit" type="submit" style="margin-top: 14px">Log ind</button>
+      </form>
+    </div>
+
+    <script src="/app.js"></script>
+    <script>
+      let mode = "login";
+      const next = qs("next") || "/";
+
+      fetch("/api/auth/me").then((r) => r.json()).then((d) => d.user && (location.href = next));
+
+      const tabLogin = document.getElementById("tabLogin");
+      const tabSignup = document.getElementById("tabSignup");
+      const submit = document.getElementById("submit");
+
+      function setMode(m) {
+        mode = m;
+        tabLogin.classList.toggle("active", m === "login");
+        tabSignup.classList.toggle("active", m === "signup");
+        document.getElementById("nameField").style.display = m === "signup" ? "" : "none";
+        submit.textContent = m === "signup" ? "Opret konto" : "Log ind";
+        document.getElementById("password").autocomplete = m === "signup" ? "new-password" : "current-password";
+      }
+      tabLogin.addEventListener("click", () => setMode("login"));
+      tabSignup.addEventListener("click", () => setMode("signup"));
+
+      function showMsg(kind, text) {
+        const box = document.getElementById("msg");
+        box.innerHTML = "";
+        box.appendChild(el("div", { class: "banner " + kind, text }));
+      }
+
+      document.getElementById("form").addEventListener("submit", async (e) => {
+        e.preventDefault();
+        const email = document.getElementById("email").value.trim();
+        const password = document.getElementById("password").value;
+        const name = document.getElementById("name").value.trim();
+        if (!email || !password) return showMsg("err", "Skriv e-mail og adgangskode.");
+        submit.disabled = true;
+        try {
+          await apiSend(mode === "signup" ? "/api/auth/signup" : "/api/auth/login", "POST", { email, password, name });
+          location.href = next;
+        } catch (err) {
+          showMsg("err", err.message);
+          submit.disabled = false;
+        }
+      });
+    </script>
+  </body>
+</html>

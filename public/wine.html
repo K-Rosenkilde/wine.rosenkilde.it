@@ -1,0 +1,233 @@
+<!doctype html>
+<html lang="da">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#1a0f14" />
+    <meta name="robots" content="noindex" />
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <link rel="icon" href="/icon.svg" type="image/svg+xml" />
+    <link rel="apple-touch-icon" href="/icon.svg" />
+    <link rel="stylesheet" href="/app.css" />
+    <title>Vin · Vin-dagbog</title>
+  </head>
+  <body>
+    <header class="topbar">
+      <a class="small" href="/">← Alle vine</a>
+      <button class="btn small secondary" type="button" id="editBtn">Redigér</button>
+    </header>
+
+    <div id="msg"></div>
+
+    <div id="gallery" class="gallery"></div>
+    <input type="file" id="addPhoto" accept="image/*" hidden />
+    <div class="row" style="margin: 8px 0 4px">
+      <select id="photoKind" style="flex: 0 0 130px; padding: 8px">
+        <option value="forside">Forside</option>
+        <option value="bagside">Bagside</option>
+        <option value="andet">Andet</option>
+      </select>
+      <button class="btn small secondary" type="button" id="addPhotoBtn">+ Tilføj billede</button>
+    </div>
+
+    <h1 id="title"></h1>
+    <div id="sub" class="muted" style="margin-top: -8px"></div>
+
+    <div class="card" id="factsCard" style="margin-top: 14px"><dl class="facts" id="facts"></dl></div>
+
+    <form class="card" id="editForm" style="display: none">
+      <div class="row" id="wineFields"></div>
+      <div class="row" style="margin-top: 14px">
+        <button class="btn" type="submit">Gem ændringer</button>
+        <button class="btn secondary" type="button" id="cancelEdit">Annullér</button>
+      </div>
+      <button class="btn danger small" type="button" id="deleteWine" style="margin-top: 14px">Slet vin</button>
+    </form>
+
+    <h2>🍷 Smagsnoter</h2>
+    <div class="card" id="tastings"></div>
+    <details class="card" id="tDetails">
+      <summary>+ Tilføj smagsnote</summary>
+      <form id="tForm"><div class="row" id="tastingFields"></div><button class="btn block" style="margin-top: 12px">Gem smagsnote</button></form>
+    </details>
+
+    <h2>🛒 Køb</h2>
+    <div class="card" id="purchases"></div>
+    <details class="card" id="pDetails">
+      <summary>+ Tilføj køb</summary>
+      <form id="pForm"><div class="row" id="purchaseFields"></div><button class="btn block" style="margin-top: 12px">Gem køb</button></form>
+    </details>
+
+    <script src="/app.js"></script>
+    <script src="/session.js"></script>
+    <script src="/wineform.js"></script>
+    <script>
+      const $ = (id) => document.getElementById(id);
+      const wineId = Number(qs("id"));
+      let data;
+
+      function flash(kind, text) {
+        $("msg").innerHTML = "";
+        $("msg").appendChild(el("div", { class: "banner " + kind, text }));
+      }
+      const who = (e) => (e.user_id === data.me ? "Dig" : e.user_name || e.user_email);
+      const canDelete = (e) => e.user_id === data.me || data.role === "owner";
+
+      function lightbox(src) {
+        const lb = el("div", { class: "lightbox", onclick: () => lb.remove() }, [el("img", { src, alt: "" })]);
+        document.body.appendChild(lb);
+      }
+
+      function renderGallery() {
+        const g = $("gallery");
+        g.innerHTML = "";
+        const kinds = { forside: "Forside", bagside: "Bagside", andet: "Andet" };
+        for (const p of data.photos) {
+          g.appendChild(el("figure", {}, [
+            el("img", { src: "/api/photos/" + p.id, alt: "", onclick: () => lightbox("/api/photos/" + p.id) }),
+            el("button", { class: "del", type: "button", title: "Slet billede", text: "✕", onclick: async () => {
+              if (!confirm("Slet dette billede?")) return;
+              await apiSend("/api/photos/" + p.id, "DELETE");
+              load();
+            } }),
+            el("figcaption", { text: kinds[p.kind] + " · " + fmtDate(p.created_at.slice(0, 10)) }),
+          ]));
+        }
+      }
+
+      function renderFacts() {
+        const w = data.wine;
+        document.title = w.name + " · Vin-dagbog";
+        $("title").textContent = w.name + (w.vintage ? " " + w.vintage : "");
+        $("sub").textContent = w.producer;
+        const rows = [
+          ["Producent", w.producer], ["Årgang", w.vintage], ["Type", COLOR_LABELS[w.color]],
+          ["Druer", w.grapes], ["Land", w.country], ["Område", w.region], ["Appellation", w.appellation],
+          ["Alkohol", w.alcohol !== null ? String(w.alcohol).replace(".", ",") + " %" : ""],
+        ].filter(([, v]) => v !== null && v !== undefined && v !== "");
+        const dl = $("facts");
+        dl.innerHTML = "";
+        for (const [k, v] of rows) { dl.appendChild(el("dt", { text: k })); dl.appendChild(el("dd", { text: String(v) })); }
+        if (w.label_text) {
+          dl.appendChild(el("dt", { text: "Etiket" }));
+          dl.appendChild(el("dd", {}, [el("details", {}, [el("summary", { text: "vis tekst" }), el("div", { class: "small muted", style: "white-space:pre-wrap", text: w.label_text })])]));
+        }
+      }
+
+      function delBtn(table, id) {
+        return el("button", { class: "linkbtn danger", type: "button", text: "slet", onclick: async () => {
+          if (!confirm("Slet?")) return;
+          await apiSend("/api/" + table + "/" + id, "DELETE");
+          load();
+        } });
+      }
+
+      function renderTastings() {
+        const box = $("tastings");
+        box.innerHTML = "";
+        if (!data.tastings.length) return box.appendChild(el("div", { class: "muted", text: "Ingen smagsnoter endnu." }));
+        for (const t of data.tastings) {
+          const extras = [["Duft", t.aroma], ["Smag", t.taste], ["Passer til", t.food]].filter(([, v]) => v);
+          box.appendChild(el("div", { class: "entry" }, [
+            el("div", { class: "head" }, [
+              el("span", {}, [who(t) + " · " + fmtDate(t.date) + (t.place ? " · " + t.place : "")]),
+              el("span", {}, [t.rating !== null ? el("span", { class: "stars", text: stars(t.rating) }) : null, canDelete(t) ? delBtn("tastings", t.id) : null]),
+            ]),
+            t.notes ? el("div", { class: "body", text: t.notes }) : null,
+            ...extras.map(([k, v]) => el("div", { class: "small" }, [el("span", { class: "muted", text: k + ": " }), v])),
+          ]));
+        }
+      }
+
+      function renderPurchases() {
+        const box = $("purchases");
+        box.innerHTML = "";
+        if (!data.purchases.length) return box.appendChild(el("div", { class: "muted", text: "Ikke købt endnu." }));
+        for (const p of data.purchases) {
+          const shop = p.url ? el("a", { href: p.url, target: "_blank", rel: "noopener", text: p.shop || new URL(p.url).hostname }) : p.shop || "—";
+          box.appendChild(el("div", { class: "entry" }, [
+            el("div", { class: "head" }, [
+              el("span", {}, [fmtDate(p.date) + " · " + who(p)]),
+              canDelete(p) ? delBtn("purchases", p.id) : null,
+            ]),
+            el("div", { class: "body" }, [
+              shop, " · ", p.quantity + " fl.",
+              p.price !== null ? " à " + money(p.price, p.currency) : "",
+              p.note ? el("div", { class: "small muted", text: p.note }) : null,
+            ]),
+          ]));
+        }
+      }
+
+      async function load() {
+        try {
+          data = await apiGet("/api/wines/" + wineId);
+        } catch (e) {
+          return flash("err", e.message);
+        }
+        renderGallery();
+        renderFacts();
+        renderTastings();
+        renderPurchases();
+        const w = data.wine;
+        $("deleteWine").style.display = data.role === "owner" || w.created_by === data.me ? "" : "none";
+      }
+
+      function init() {
+        const readT = renderTastingForm($("tastingFields"));
+        const readP = renderPurchaseForm($("purchaseFields"));
+
+        $("tForm").addEventListener("submit", async (e) => {
+          e.preventDefault();
+          await apiSend("/api/wines/" + wineId + "/tastings", "POST", readT());
+          renderTastingForm($("tastingFields"));
+          $("tDetails").open = false;
+          load();
+        });
+        $("pForm").addEventListener("submit", async (e) => {
+          e.preventDefault();
+          await apiSend("/api/wines/" + wineId + "/purchases", "POST", readP());
+          renderPurchaseForm($("purchaseFields"));
+          $("pDetails").open = false;
+          load();
+        });
+
+        $("editBtn").onclick = () => {
+          renderWineFields($("wineFields"), data.wine);
+          $("editForm").style.display = "";
+          $("factsCard").style.display = "none";
+        };
+        $("cancelEdit").onclick = () => { $("editForm").style.display = "none"; $("factsCard").style.display = ""; };
+        $("editForm").addEventListener("submit", async (e) => {
+          e.preventDefault();
+          try {
+            await apiSend("/api/wines/" + wineId, "PUT", { ...readWineFields($("wineFields")), label_text: data.wine.label_text });
+            $("cancelEdit").onclick();
+            load();
+          } catch (err) { flash("err", err.message); }
+        });
+        $("deleteWine").onclick = async () => {
+          if (!confirm("Slet vinen med billeder, smagsnoter og køb?")) return;
+          await apiSend("/api/wines/" + wineId, "DELETE");
+          location.href = "/";
+        };
+
+        $("addPhotoBtn").onclick = () => $("addPhoto").click();
+        $("addPhoto").onchange = async (e) => {
+          const file = e.target.files[0];
+          if (!file) return;
+          flash("info", "Gemmer billedet…");
+          try {
+            await apiUpload("/api/wines/" + wineId + "/photos", await photoForm(file, $("photoKind").value));
+            $("msg").innerHTML = "";
+            load();
+          } catch (err) { flash("err", err.message); }
+          e.target.value = "";
+        };
+        load();
+      }
+
+      Session.onReady(init, { requireCellar: false });
+    </script>
+  </body>
+</html>

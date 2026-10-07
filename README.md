@@ -1,0 +1,52 @@
+# Vin-dagbog — wine.rosenkilde.it
+
+Multi-user wine journal (Danish UI). Photograph a bottle → the photo is **saved** and Claude reads the
+label and pre-fills name, producer/house, vintage, grapes, country, region, appellation, type and
+alcohol. Correct the fields, add your tasting note (1–5 rating, notes, aroma, taste, food, occasion)
+and — if you bought it — the purchase (date, shop/webshop + link, price, quantity).
+
+- **Cellars (kældre)** — a shared wine list. Create one and share the invite link (`/join?code=…`)
+  with family or the wine club. Every member sees all wines, but tastings and purchases belong to the
+  person who added them, so each keeps their own opinion. Same model as games.rosenkilde.it leagues.
+- **Photos** — kept permanently in R2 (full size ~2000px + 400px thumbnail, resized in the browser).
+  Several per wine (forside / bagside / andet), only served to cellar members.
+- **List** — search, filter (type, country, bought / not bought), sort (newest, rating, last tasted,
+  vintage, name). **Eksportér CSV** downloads the whole cellar (semicolon-separated, opens in Excel).
+
+## Stack
+One Cloudflare Worker (Hono) serving `public/` as static assets plus `/api/*`; D1 for data, R2 for photos,
+the Anthropic API (`claude-opus-5-5`, vision + JSON-schema output, low effort, refusal fallback enabled)
+for label reading. No build step for the frontend.
+
+```
+worker/index.js   API: auth, cellars, scan, wines, photos, tastings, purchases, CSV export
+worker/d1.js      D1 queries
+worker/auth.js    PBKDF2 passwords + cookie sessions (copied from games.rosenkilde.it)
+worker/label.js   reads the label with Claude
+migrations/       D1 schema
+public/           index (list) · add (photo + new wine) · wine (details) · cellars · auth · join
+```
+
+## One-time setup (Cloudflare account klaus@rosenkilde.org)
+```sh
+npm install
+npx wrangler login
+npx wrangler d1 create wine                  # paste database_id into wrangler.toml
+# R2 must be enabled once first: dash.cloudflare.com → R2 Object Storage → enable (free tier)
+npx wrangler r2 bucket create wine-photos
+npx wrangler secret put ANTHROPIC_API_KEY    # key from console.anthropic.com
+npm run migrate                              # apply migrations to the remote D1
+npm run deploy                               # also creates the wine.rosenkilde.it custom domain
+```
+Without `ANTHROPIC_API_KEY` everything works, except that you fill in the fields yourself (the photo is
+still saved). Label reading costs roughly a few øre per photo.
+
+For continuous deploys, connect the GitHub repo in the Cloudflare dashboard (Workers & Pages → wine →
+Settings → Build) so every push to `main` redeploys.
+
+## Local development
+```sh
+cp .dev.vars.example .dev.vars   # optional: add an API key to test label reading
+npm run migrate:local
+npm run dev                      # http://localhost:8787 (local D1 + R2)
+```

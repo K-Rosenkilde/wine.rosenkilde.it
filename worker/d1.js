@@ -32,6 +32,9 @@ export async function userForSession(db, sessionId) {
     .first();
   return row || null;
 }
+export async function setUserName(db, userId, name) {
+  await db.prepare("UPDATE users SET name = ? WHERE id = ?").bind(name, userId).run();
+}
 export async function deleteSession(db, sessionId) {
   await db.prepare("DELETE FROM sessions WHERE id = ?").bind(sessionId).run();
 }
@@ -58,6 +61,9 @@ export async function getCellarByInvite(db, code) {
 }
 export async function setInviteCode(db, cellarId, code) {
   await db.prepare("UPDATE cellars SET invite_code = ? WHERE id = ?").bind(code, cellarId).run();
+}
+export async function renameCellar(db, cellarId, name) {
+  await db.prepare("UPDATE cellars SET name = ? WHERE id = ?").bind(name, cellarId).run();
 }
 export async function deleteCellar(db, cellarId) {
   await db.prepare("DELETE FROM cellars WHERE id = ?").bind(cellarId).run();

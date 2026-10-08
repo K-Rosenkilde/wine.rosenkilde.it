@@ -99,6 +99,7 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); bo
 .entry .body { margin-top: 4px; white-space: pre-wrap; }
 .linkbtn { background: none; border: none; color: var(--accent); cursor: pointer; font: inherit; padding: 0; margin-left: 10px; }
 .linkbtn.danger { color: var(--danger); }
+.linkbtn.muted { color: var(--muted); margin-left: 0; }
 
 .rating { display: flex; gap: 4px; flex-wrap: wrap; }
 .rating button {

@@ -79,6 +79,16 @@ app.post("/api/auth/logout", async (c) => {
 
 app.get("/api/auth/me", (c) => c.json({ user: pubUser(c.get("user")) }));
 
+// Change your own display name.
+app.put("/api/auth/me", async (c) => {
+  const user = c.get("user");
+  if (!user) return deny(c, 401);
+  const n = String((await body(c)).name || "").trim().slice(0, 100);
+  if (!n) return c.json({ error: "Skriv et navn" }, 400);
+  await d1.setUserName(DB(c), user.id, n);
+  return c.json({ user: { ...pubUser(user), name: n } });
+});
+
 // ============================ CELLARS =====================================
 
 app.get("/api/cellars", async (c) => {
@@ -104,6 +114,18 @@ app.get("/api/cellars/:id", async (c) => {
   const out = { id: cellar.id, name: cellar.name, role: a.role, members: await d1.listMembers(DB(c), cellarId) };
   if (a.role === "owner") out.inviteCode = cellar.invite_code;
   return c.json(out);
+});
+
+// Rename a cellar (owner only).
+app.put("/api/cellars/:id", async (c) => {
+  const cellarId = Number(c.req.param("id"));
+  const a = await access(c, cellarId);
+  if (a.error) return deny(c, a.error);
+  if (a.role !== "owner") return c.json({ error: "Kun ejeren kan omdøbe kælderen" }, 403);
+  const n = String((await body(c)).name || "").trim().slice(0, 100);
+  if (!n) return c.json({ error: "Giv kælderen et navn" }, 400);
+  await d1.renameCellar(DB(c), cellarId, n);
+  return c.json({ ok: true, name: n });
 });
 
 app.post("/api/cellars/:id/invite/regenerate", async (c) => {

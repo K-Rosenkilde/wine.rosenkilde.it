@@ -67,6 +67,18 @@ const Session = {
     location.href = "/auth";
   },
 
+  async rename(btn) {
+    const name = prompt("Dit navn (vises ved dine smagsnoter og køb):", this.user.name || "");
+    if (name === null || !name.trim()) return;
+    try {
+      const r = await apiSend("/api/auth/me", "PUT", { name: name.trim() });
+      this.user = r.user;
+      btn.textContent = r.user.name + " ✎";
+    } catch (e) {
+      alert(e.message);
+    }
+  },
+
   renderBar(hasCellar) {
     const left = el("div");
     if (hasCellar) {
@@ -76,7 +88,9 @@ const Session = {
       left.appendChild(el("strong", { text: "🍷 Vin-dagbog" }));
     }
     const out = el("button", { type: "button", class: "linkbtn", text: "Log ud", onclick: () => this.logout() });
-    const right = el("div", {}, [el("span", { class: "muted", text: this.user.name || this.user.email }), out]);
+    const who = el("button", { type: "button", class: "linkbtn muted", title: "Skift dit navn",
+      text: (this.user.name || this.user.email) + " ✎", onclick: () => this.rename(who) });
+    const right = el("div", {}, [who, out]);
     document.body.insertBefore(el("div", { class: "ctxbar" }, [left, right]), document.body.firstChild);
   },
 };

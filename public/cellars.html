@@ -55,6 +55,17 @@
         const c = await apiGet("/api/cellars/" + cellarId);
         const render = (code) => {
           box.innerHTML = "";
+          const nameInput = el("input", { type: "text", value: c.name });
+          box.appendChild(el("div", { class: "small muted", text: "Kælderens navn" }));
+          box.appendChild(el("div", { class: "row", style: "margin:4px 0 12px" }, [
+            nameInput,
+            el("button", { class: "btn small", type: "button", style: "flex:0 0 auto", text: "Gem navn", onclick: async () => {
+              try {
+                await apiSend("/api/cellars/" + cellarId, "PUT", { name: nameInput.value });
+                load();
+              } catch (e) { showMsg("err", e.message); }
+            } }),
+          ]));
           const link = location.origin + "/join?code=" + code;
           box.appendChild(el("div", { class: "small muted", text: "Invitationslink — send det til dem der skal være med:" }));
           box.appendChild(el("div", { class: "invite-box" }, [

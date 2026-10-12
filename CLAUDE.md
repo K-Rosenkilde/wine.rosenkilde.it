@@ -21,7 +21,6 @@ subdomain apps (games., news., go. …). See README.md for setup and layout.
   `npm run migrate` locally (or pastes the SQL into the D1 console in the dashboard).
 
 ## Open tasks
-- Setup done (D1 `wine`, R2 `wine-photos`, secret ANTHROPIC_API_KEY, migration 0001).
-- Migration 0002_storage.sql (fridges/racks) must be applied remotely: `npm run migrate`.
+- Setup done (D1 `wine`, R2 `wine-photos`, secret ANTHROPIC_API_KEY). Remote migrations applied: 0001, 0002.
 - Add a "Vin" card to the rosenkilde.it front page (`rosenkilde-frontpage`) and a row in the portal's
   `apps` table.

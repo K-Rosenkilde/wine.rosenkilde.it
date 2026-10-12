@@ -14,8 +14,13 @@ subdomain apps (games., news., go. …). See README.md for setup and layout.
 - Label reading: worker/label.js, model `claude-opus-5-5`, structured JSON output (no forced tool use),
   `fallbacks: "default"`. Secret `ANTHROPIC_API_KEY`.
 
+## Deployment
+- Cloudflare Worker `wine`, git-connected (Workers Builds): every push to `main` deploys
+  (deploy command `npx wrangler deploy`). Custom domain wine.rosenkilde.it.
+- Migrations are NOT applied by the build. After adding `migrations/000N_*.sql`, Klaus runs
+  `npm run migrate` locally (or pastes the SQL into the D1 console in the dashboard).
+
 ## Open tasks
-- D1 `wine` is created (id in wrangler.toml). Still to do: enable R2 in the Cloudflare dashboard,
-  create bucket `wine-photos`, set secret ANTHROPIC_API_KEY, `npm run migrate`, `npm run deploy`.
+- None for setup: D1 `wine`, R2 `wine-photos`, secret ANTHROPIC_API_KEY and migration 0001 are done (Oct 2026).
 - Add a "Vin" card to the rosenkilde.it front page (`rosenkilde-frontpage`) and a row in the portal's
   `apps` table.

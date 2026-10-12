@@ -41,8 +41,9 @@ npm run deploy                               # also creates the wine.rosenkilde.
 Without `ANTHROPIC_API_KEY` everything works, except that you fill in the fields yourself (the photo is
 still saved). Label reading costs roughly a few øre per photo.
 
-For continuous deploys, connect the GitHub repo in the Cloudflare dashboard (Workers & Pages → wine →
-Settings → Build) so every push to `main` redeploys.
+Deploys are automatic: the Worker is connected to this GitHub repo (Workers & Pages → wine → Settings →
+Build), so every push to `main` builds and deploys. Database migrations are not applied by the build —
+run `npm run migrate` after adding a new file in `migrations/`.
 
 ## Local development
 ```sh

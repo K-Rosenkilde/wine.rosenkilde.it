@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="da">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#1a0f14" />
+    <meta name="robots" content="noindex" />
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <link rel="icon" href="/icon.svg" type="image/svg+xml" />
+    <link rel="apple-touch-icon" href="/icon.svg" />
+    <link rel="stylesheet" href="/app.css" />
+    <title>Køleskabe & reoler · Vin-dagbog</title>
+  </head>
+  <body>
+    <header class="topbar">
+      <h1>🗄️ Køleskabe & reoler</h1>
+      <a class="small" href="/">← Alle vine</a>
+    </header>
+
+    <div id="list"></div>
+
+    <details class="card" id="newCard">
+      <summary>+ Nyt vinkøleskab eller vinreol</summary>
+      <form id="form">
+        <div id="formBox"></div>
+        <div id="msg"></div>
+        <button class="btn block" type="submit" style="margin-top: 14px">Opret</button>
+      </form>
+    </details>
+
+    <script src="/app.js"></script>
+    <script src="/session.js"></script>
+    <script src="/storageform.js"></script>
+    <script>
+      const $ = (id) => document.getElementById(id);
+      const wineId = Number(qs("place")) || null; // coming from a wine page: "læg en flaske på plads"
+
+      async function load() {
+        const box = $("list");
+        box.innerHTML = "";
+        const rows = await apiGet("/api/storages?" + Session.q());
+        if (wineId) box.appendChild(el("div", { class: "banner info", text: "Vælg hvor flasken skal ligge." }));
+        if (!rows.length) {
+          box.appendChild(el("p", { class: "muted", text: "Ingen vinkøleskabe eller reoler endnu — opret en herunder." }));
+          $("newCard").open = true;
+        }
+        for (const s of rows) {
+          const free = s.capacity - s.used;
+          box.appendChild(el("a", { class: "list-item", href: "/storage?id=" + s.id + (wineId ? "&place=" + wineId : "") }, [
+            el("div", { style: "flex:1;min-width:0" }, [
+              el("div", { style: "font-weight:700", text: KIND_ICONS[s.kind] + " " + s.name }),
+              el("div", { class: "meta", text: KIND_LABELS[s.kind] + " · " + s.shelves.length + " hylder · " + s.used + " / " + s.capacity + " flasker" }),
+              ...s.zones.map((z, i) => el("div", { class: "meta" }, [
+                el("span", { class: "dot", style: "background:" + ZONE_COLORS[i % ZONE_COLORS.length] }), zoneText(z),
+              ])),
+            ]),
+            el("div", { class: "small " + (free ? "muted" : ""), style: "text-align:right", text: free ? free + " ledige" : "fuld" }),
+          ]));
+        }
+      }
+
+      function init() {
+        const read = renderStorageForm($("formBox"));
+        $("form").addEventListener("submit", async (e) => {
+          e.preventDefault();
+          try {
+            const { id } = await apiSend("/api/storages", "POST", { cellarId: Session.cellarId, ...read() });
+            location.href = "/storage?id=" + id + (wineId ? "&place=" + wineId : "");
+          } catch (err) {
+            $("msg").innerHTML = "";
+            $("msg").appendChild(el("div", { class: "banner err", text: err.message }));
+          }
+        });
+        load();
+      }
+      Session.onReady(init);
+    </script>
+  </body>
+</html>

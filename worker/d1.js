@@ -137,6 +137,7 @@ export async function listWines(db, cellarId, userId) {
            (SELECT COUNT(*) FROM tastings t WHERE t.wine_id = w.id) AS tastings,
            (SELECT MAX(t.date) FROM tastings t WHERE t.wine_id = w.id) AS last_tasted,
            (SELECT COALESCE(SUM(pu.quantity), 0) FROM purchases pu WHERE pu.wine_id = w.id) AS bought,
+           (SELECT COUNT(*) FROM placements pl WHERE pl.wine_id = w.id) AS stored,
            (SELECT pu.price FROM purchases pu WHERE pu.wine_id = w.id ORDER BY pu.date DESC, pu.id DESC LIMIT 1) AS last_price,
            (SELECT pu.currency FROM purchases pu WHERE pu.wine_id = w.id ORDER BY pu.date DESC, pu.id DESC LIMIT 1) AS last_currency
          FROM wines w WHERE w.cellar_id = ?
@@ -270,4 +271,118 @@ export async function exportRows(db, cellarId) {
       )
       .bind(cellarId)
   );
+}
+
+// ---- storage: wine fridges & racks ----------------------------------------
+
+export async function listStorages(db, cellarId) {
+  return all(
+    db
+      .prepare(
+        `SELECT s.*, (SELECT COUNT(*) FROM placements p WHERE p.storage_id = s.id) AS used
+         FROM storages s WHERE s.cellar_id = ? ORDER BY s.name`
+      )
+      .bind(cellarId)
+  );
+}
+export async function getStorage(db, id) {
+  return db.prepare("SELECT * FROM storages WHERE id = ?").bind(id).first();
+}
+export async function zonesForStorage(db, storageId) {
+  return all(
+    db.prepare("SELECT * FROM storage_zones WHERE storage_id = ? ORDER BY from_shelf").bind(storageId)
+  );
+}
+export async function zonesForCellar(db, cellarId) {
+  return all(
+    db
+      .prepare(
+        `SELECT z.* FROM storage_zones z JOIN storages s ON s.id = z.storage_id
+         WHERE s.cellar_id = ? ORDER BY z.storage_id, z.from_shelf`
+      )
+      .bind(cellarId)
+  );
+}
+export async function placementsForStorage(db, storageId) {
+  return all(
+    db
+      .prepare(
+        `SELECT p.id, p.shelf, p.slot, p.wine_id, w.name, w.producer, w.vintage, w.color,
+                (SELECT ph.id FROM photos ph WHERE ph.wine_id = w.id ORDER BY ph.id LIMIT 1) AS cover_id
+         FROM placements p JOIN wines w ON w.id = p.wine_id
+         WHERE p.storage_id = ? ORDER BY p.shelf, p.slot`
+      )
+      .bind(storageId)
+  );
+}
+export async function placementsForWine(db, wineId) {
+  return all(
+    db
+      .prepare(
+        `SELECT p.id, p.shelf, p.slot, s.id AS storage_id, s.name AS storage_name, s.kind
+         FROM placements p JOIN storages s ON s.id = p.storage_id
+         WHERE p.wine_id = ? ORDER BY s.name, p.shelf, p.slot`
+      )
+      .bind(wineId)
+  );
+}
+
+/** Insert or replace a storage with its zones. Returns the storage id. */
+export async function saveStorage(db, { id, cellarId, userId, name, kind, shelfSlots, note, zones }) {
+  let storageId = id;
+  if (id) {
+    await db
+      .prepare("UPDATE storages SET name = ?, kind = ?, shelf_slots = ?, note = ? WHERE id = ?")
+      .bind(name, kind, shelfSlots.join(","), note, id)
+      .run();
+  } else {
+    const res = await db
+      .prepare("INSERT INTO storages (cellar_id, name, kind, shelf_slots, note, created_by) VALUES (?, ?, ?, ?, ?, ?)")
+      .bind(cellarId, name, kind, shelfSlots.join(","), note, userId)
+      .run();
+    storageId = res.meta.last_row_id;
+  }
+  const ins = db.prepare(
+    "INSERT INTO storage_zones (storage_id, name, temp, from_shelf, to_shelf) VALUES (?, ?, ?, ?, ?)"
+  );
+  await db.batch([
+    db.prepare("DELETE FROM storage_zones WHERE storage_id = ?").bind(storageId),
+    ...zones.map((z) => ins.bind(storageId, z.name, z.temp, z.from_shelf, z.to_shelf)),
+  ]);
+  return storageId;
+}
+export async function deleteStorage(db, id) {
+  await db.prepare("DELETE FROM storages WHERE id = ?").bind(id).run();
+}
+/** Placements that would fall outside a new shelf layout. */
+export async function placementsOutside(db, storageId, shelfSlots) {
+  const rows = await all(db.prepare("SELECT shelf, slot FROM placements WHERE storage_id = ?").bind(storageId));
+  return rows.filter((p) => p.shelf > shelfSlots.length || p.slot > shelfSlots[p.shelf - 1]).length;
+}
+/** Place a bottle; returns false if the spot is already taken. */
+export async function addPlacement(db, storageId, wineId, shelf, slot, userId) {
+  const res = await db
+    .prepare(
+      `INSERT INTO placements (storage_id, wine_id, shelf, slot, added_by) VALUES (?, ?, ?, ?, ?)
+       ON CONFLICT(storage_id, shelf, slot) DO NOTHING`
+    )
+    .bind(storageId, wineId, shelf, slot, userId)
+    .run();
+  return res.meta.changes > 0;
+}
+export async function getPlacement(db, id) {
+  return db.prepare("SELECT * FROM placements WHERE id = ?").bind(id).first();
+}
+export async function movePlacement(db, id, shelf, slot) {
+  const res = await db
+    .prepare(
+      `UPDATE placements SET shelf = ?, slot = ? WHERE id = ? AND NOT EXISTS (
+         SELECT 1 FROM placements o WHERE o.storage_id = placements.storage_id AND o.shelf = ? AND o.slot = ? AND o.id != ?)`
+    )
+    .bind(shelf, slot, id, shelf, slot, id)
+    .run();
+  return res.meta.changes > 0;
+}
+export async function deletePlacement(db, id) {
+  await db.prepare("DELETE FROM placements WHERE id = ?").bind(id).run();
 }

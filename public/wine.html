@@ -44,6 +44,12 @@
       <button class="btn danger small" type="button" id="deleteWine" style="margin-top: 14px">Slet vin</button>
     </form>
 
+    <h2>📍 Placering</h2>
+    <div class="card">
+      <div id="placements"></div>
+      <a class="btn small secondary" id="placeBtn" href="#" style="margin-top: 10px">+ Læg en flaske i køleskab / reol</a>
+    </div>
+
     <h2>🍷 Smagsnoter</h2>
     <div class="card" id="tastings"></div>
     <details class="card" id="tDetails">
@@ -139,6 +145,19 @@
         }
       }
 
+      function renderPlacements() {
+        const box = $("placements");
+        box.innerHTML = "";
+        $("placeBtn").href = "/storages?place=" + wineId;
+        if (!data.placements.length) return box.appendChild(el("div", { class: "muted", text: "Ikke på lager." }));
+        for (const p of data.placements) {
+          box.appendChild(el("div", { class: "entry" }, [
+            el("a", { href: "/storage?id=" + p.storage_id, text: (p.kind === "koleskab" ? "❄️ " : "🪵 ") + p.storage_name }),
+            el("span", { class: "muted", text: " · hylde " + p.shelf + ", plads " + p.slot }),
+          ]));
+        }
+      }
+
       function renderPurchases() {
         const box = $("purchases");
         box.innerHTML = "";
@@ -169,6 +188,7 @@
         renderFacts();
         renderTastings();
         renderPurchases();
+        renderPlacements();
         const w = data.wine;
         $("deleteWine").style.display = data.role === "owner" || w.created_by === data.me ? "" : "none";
       }

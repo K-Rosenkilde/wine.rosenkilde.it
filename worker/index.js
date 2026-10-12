@@ -337,6 +337,7 @@ app.get("/api/wines/:id", async (c) => {
     photos: await d1.photosForWine(db, wa.wine.id),
     tastings: await d1.tastingsForWine(db, wa.wine.id),
     purchases: await d1.purchasesForWine(db, wa.wine.id),
+    placements: await d1.placementsForWine(db, wa.wine.id),
   });
 });
 
@@ -405,6 +406,159 @@ app.get("/api/export.csv", async (c) => {
       "Content-Disposition": `attachment; filename="vin-${cellarId}.csv"`,
     },
   });
+});
+
+// ============================ STORAGE =====================================
+// Wine fridges (vinkøleskab, with temperature zones) and racks (vinreol). Any
+// member can create one and place bottles; only its creator or the cellar
+// owner can delete it.
+
+const MAX_SHELVES = 50;
+const MAX_SLOTS = 200;
+
+/** Validate a storage body. Returns { value } or { error }. */
+function cleanStorage(b) {
+  const name = str(b.name, 100);
+  if (!name) return { error: "Giv den et navn" };
+  const kind = b.kind === "koleskab" ? "koleskab" : "reol";
+  const shelfSlots = (Array.isArray(b.shelves) ? b.shelves : []).map((n) => Math.trunc(num(n) ?? 0));
+  if (!shelfSlots.length || shelfSlots.length > MAX_SHELVES) return { error: `Antal hylder skal være 1–${MAX_SHELVES}` };
+  if (shelfSlots.some((n) => n < 1 || n > MAX_SLOTS)) return { error: `Flasker pr. hylde skal være 1–${MAX_SLOTS}` };
+  const zones = [];
+  if (kind === "koleskab") {
+    for (const z of Array.isArray(b.zones) ? b.zones : []) {
+      const from = Math.trunc(num(z.from_shelf) ?? 0);
+      const to = Math.trunc(num(z.to_shelf) ?? 0);
+      if (from < 1 || to < from || to > shelfSlots.length) {
+        return { error: `En zone skal dække hylder mellem 1 og ${shelfSlots.length}` };
+      }
+      const temp = num(z.temp);
+      if (temp !== null && (temp < -5 || temp > 30)) return { error: "Temperaturen skal være mellem -5 og 30 °C" };
+      zones.push({ name: str(z.name, 50), temp, from_shelf: from, to_shelf: to });
+    }
+    zones.sort((a, b) => a.from_shelf - b.from_shelf);
+    for (let i = 1; i < zones.length; i++) {
+      if (zones[i].from_shelf <= zones[i - 1].to_shelf) return { error: "Zonerne må ikke overlappe" };
+    }
+  }
+  return { value: { name, kind, shelfSlots, note: str(b.note, 500), zones } };
+}
+
+async function storageAccess(c, id) {
+  const storage = await d1.getStorage(DB(c), id);
+  if (!storage) return { error: 404 };
+  const a = await access(c, storage.cellar_id);
+  return a.error ? a : { ...a, storage };
+}
+const shelfList = (s) => s.shelf_slots.split(",").map(Number);
+
+app.get("/api/storages", async (c) => {
+  const cellarId = Number(c.req.query("cellar"));
+  const a = await access(c, cellarId);
+  if (a.error) return deny(c, a.error);
+  const zones = await d1.zonesForCellar(DB(c), cellarId);
+  const rows = await d1.listStorages(DB(c), cellarId);
+  return c.json(rows.map((s) => {
+    const shelves = shelfList(s);
+    return { ...s, shelves, capacity: shelves.reduce((x, y) => x + y, 0), zones: zones.filter((z) => z.storage_id === s.id) };
+  }));
+});
+
+app.post("/api/storages", async (c) => {
+  const b = await body(c);
+  const cellarId = Number(b.cellarId);
+  const a = await access(c, cellarId);
+  if (a.error) return deny(c, a.error);
+  const v = cleanStorage(b);
+  if (v.error) return c.json({ error: v.error }, 400);
+  const id = await d1.saveStorage(DB(c), { ...v.value, cellarId, userId: a.user.id });
+  return c.json({ id }, 201);
+});
+
+app.get("/api/storages/:id", async (c) => {
+  const sa = await storageAccess(c, Number(c.req.param("id")));
+  if (sa.error) return deny(c, sa.error);
+  const db = DB(c);
+  return c.json({
+    storage: { ...sa.storage, shelves: shelfList(sa.storage) },
+    zones: await d1.zonesForStorage(db, sa.storage.id),
+    placements: await d1.placementsForStorage(db, sa.storage.id),
+    canDelete: sa.role === "owner" || sa.storage.created_by === sa.user.id,
+  });
+});
+
+app.put("/api/storages/:id", async (c) => {
+  const sa = await storageAccess(c, Number(c.req.param("id")));
+  if (sa.error) return deny(c, sa.error);
+  const v = cleanStorage(await body(c));
+  if (v.error) return c.json({ error: v.error }, 400);
+  const outside = await d1.placementsOutside(DB(c), sa.storage.id, v.value.shelfSlots);
+  if (outside) {
+    return c.json({ error: `${outside} flaske${outside === 1 ? "" : "r"} står på pladser der forsvinder — flyt eller fjern dem først` }, 409);
+  }
+  await d1.saveStorage(DB(c), { ...v.value, id: sa.storage.id });
+  return c.json({ ok: true });
+});
+
+app.delete("/api/storages/:id", async (c) => {
+  const sa = await storageAccess(c, Number(c.req.param("id")));
+  if (sa.error) return deny(c, sa.error);
+  if (sa.role !== "owner" && sa.storage.created_by !== sa.user.id) {
+    return c.json({ error: "Kun den der oprettede den eller kælderens ejer kan slette den" }, 403);
+  }
+  await d1.deleteStorage(DB(c), sa.storage.id);
+  return c.json({ ok: true });
+});
+
+/** Shelf/slot from a body, validated against the storage layout. */
+function spot(storage, b) {
+  const shelves = shelfList(storage);
+  const shelf = Math.trunc(num(b.shelf) ?? 0);
+  const slot = Math.trunc(num(b.slot) ?? 0);
+  if (shelf < 1 || shelf > shelves.length || slot < 1 || slot > shelves[shelf - 1]) return null;
+  return { shelf, slot };
+}
+
+// Put a bottle of a wine (from the same cellar) in a free spot.
+app.post("/api/storages/:id/placements", async (c) => {
+  const sa = await storageAccess(c, Number(c.req.param("id")));
+  if (sa.error) return deny(c, sa.error);
+  const b = await body(c);
+  const wine = await d1.getWine(DB(c), Number(b.wineId));
+  if (!wine || wine.cellar_id !== sa.storage.cellar_id) return c.json({ error: "Vælg en vin fra kælderen" }, 400);
+  const pos = spot(sa.storage, b);
+  if (!pos) return c.json({ error: "Ugyldig plads" }, 400);
+  if (!(await d1.addPlacement(DB(c), sa.storage.id, wine.id, pos.shelf, pos.slot, sa.user.id))) {
+    return c.json({ error: "Pladsen er optaget" }, 409);
+  }
+  return c.json({ ok: true }, 201);
+});
+
+async function placementAccess(c, id) {
+  const p = await d1.getPlacement(DB(c), id);
+  if (!p) return { error: 404 };
+  const sa = await storageAccess(c, p.storage_id);
+  return sa.error ? sa : { ...sa, placement: p };
+}
+
+// Move a bottle to another free spot in the same fridge/rack.
+app.put("/api/placements/:id", async (c) => {
+  const pa = await placementAccess(c, Number(c.req.param("id")));
+  if (pa.error) return deny(c, pa.error);
+  const pos = spot(pa.storage, await body(c));
+  if (!pos) return c.json({ error: "Ugyldig plads" }, 400);
+  if (!(await d1.movePlacement(DB(c), pa.placement.id, pos.shelf, pos.slot))) {
+    return c.json({ error: "Pladsen er optaget" }, 409);
+  }
+  return c.json({ ok: true });
+});
+
+// Take a bottle out (drunk, given away, moved elsewhere).
+app.delete("/api/placements/:id", async (c) => {
+  const pa = await placementAccess(c, Number(c.req.param("id")));
+  if (pa.error) return deny(c, pa.error);
+  await d1.deletePlacement(DB(c), pa.placement.id);
+  return c.json({ ok: true });
 });
 
 app.all("/api/*", (c) => deny(c, 404));

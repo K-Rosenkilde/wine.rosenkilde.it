@@ -1,0 +1,223 @@
+<!doctype html>
+<html lang="da">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#1a0f14" />
+    <meta name="robots" content="noindex" />
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <link rel="icon" href="/icon.svg" type="image/svg+xml" />
+    <link rel="apple-touch-icon" href="/icon.svg" />
+    <link rel="stylesheet" href="/app.css" />
+    <title>Vinkøleskab · Vin-dagbog</title>
+  </head>
+  <body>
+    <header class="topbar">
+      <a class="small" href="/storages">← Køleskabe & reoler</a>
+      <button class="btn small secondary" type="button" id="editBtn">Redigér</button>
+    </header>
+
+    <h1 id="title"></h1>
+    <div id="sub" class="muted small" style="margin-top: -8px"></div>
+    <div id="msg"></div>
+
+    <form class="card" id="editForm" style="display: none">
+      <div id="formBox"></div>
+      <div class="row" style="margin-top: 14px">
+        <button class="btn" type="submit">Gem ændringer</button>
+        <button class="btn secondary" type="button" id="cancelEdit">Annullér</button>
+      </div>
+      <button class="btn danger small" type="button" id="deleteBtn" style="margin-top: 14px">Slet</button>
+    </form>
+
+    <div id="rack"></div>
+
+    <div class="sheet" id="sheet" hidden>
+      <div class="sheet-inner">
+        <div class="row" style="align-items: center">
+          <strong id="sheetTitle" style="flex: 1"></strong>
+          <button class="linkbtn" type="button" id="sheetClose" style="flex: 0 0 auto">Luk</button>
+        </div>
+        <div id="sheetBody"></div>
+      </div>
+    </div>
+
+    <script src="/app.js"></script>
+    <script src="/session.js"></script>
+    <script src="/storageform.js"></script>
+    <script>
+      const $ = (id) => document.getElementById(id);
+      const storageId = Number(qs("id"));
+      let placeWineId = Number(qs("place")) || null; // place this wine on the next empty spot tapped
+      let moving = null; // placement being moved
+      let data, wines = null;
+
+      function flash(kind, text) {
+        $("msg").innerHTML = "";
+        if (text) $("msg").appendChild(el("div", { class: "banner " + kind, text }));
+      }
+      const wineLabel = (w) => [w.name, w.vintage].filter(Boolean).join(" ");
+
+      function openSheet(title, content) {
+        $("sheetTitle").textContent = title;
+        $("sheetBody").innerHTML = "";
+        content.forEach((n) => n && $("sheetBody").appendChild(n));
+        $("sheet").hidden = false;
+      }
+      function closeSheet() { $("sheet").hidden = true; }
+
+      function zoneFor(shelf) {
+        const i = data.zones.findIndex((z) => shelf >= z.from_shelf && shelf <= z.to_shelf);
+        return i < 0 ? null : { ...data.zones[i], color: ZONE_COLORS[i % ZONE_COLORS.length] };
+      }
+
+      function hint() {
+        if (moving) flash("info", "Tryk på en ledig plads for at flytte " + wineLabel(moving) + " — eller Luk for at annullere.");
+        else if (placeWineId) {
+          const w = (wines || []).find((x) => x.id === placeWineId);
+          flash("info", "Tryk på en ledig plads for at lægge " + (w ? wineLabel(w) : "flasken") + " der.");
+        } else flash();
+      }
+
+      function render() {
+        const s = data.storage;
+        document.title = s.name + " · Vin-dagbog";
+        $("title").textContent = KIND_ICONS[s.kind] + " " + s.name;
+        const cap = s.shelves.reduce((a, b) => a + b, 0);
+        $("sub").textContent = KIND_LABELS[s.kind] + " · " + data.placements.length + " / " + cap + " flasker" + (s.note ? " · " + s.note : "");
+        $("deleteBtn").style.display = data.canDelete ? "" : "none";
+
+        const taken = new Map(data.placements.map((p) => [p.shelf + ":" + p.slot, p]));
+        const rack = $("rack");
+        rack.innerHTML = "";
+        let lastZone;
+        s.shelves.forEach((n, i) => {
+          const shelf = i + 1;
+          const zone = zoneFor(shelf);
+          if (zone && zone.id !== lastZone) {
+            rack.appendChild(el("div", { class: "zone-head", style: "color:" + zone.color }, [
+              "🌡️ " + (zone.name || "Zone") + (zone.temp !== null ? " · " + String(zone.temp).replace(".", ",") + " °C" : ""),
+            ]));
+          }
+          lastZone = zone ? zone.id : null;
+          const slots = el("div", { class: "slots" });
+          for (let k = 1; k <= n; k++) {
+            const p = taken.get(shelf + ":" + k);
+            if (p) {
+              slots.appendChild(el("button", { type: "button", class: "slot full" + (["hvid", "mousserende", "rosé"].includes(p.color) ? " light" : "") + (moving && moving.id === p.id ? " moving" : ""),
+                title: wineLabel(p), style: "--wine:" + (COLOR_DOTS[p.color] || "#9b1c31"),
+                onclick: () => onFull(p) }, [el("span", { text: (p.vintage ? "’" + String(p.vintage).slice(2) : "🍷") })]));
+            } else {
+              slots.appendChild(el("button", { type: "button", class: "slot" + (moving || placeWineId ? " target" : ""),
+                title: "Hylde " + shelf + ", plads " + k, onclick: () => onEmpty(shelf, k) }, [el("span", { text: "+" })]));
+            }
+          }
+          const used = data.placements.filter((p) => p.shelf === shelf).length;
+          rack.appendChild(el("div", { class: "shelf", style: zone ? "border-left-color:" + zone.color : "" }, [
+            el("div", { class: "shelf-head" }, [el("span", { text: "Hylde " + shelf }), el("span", { class: "muted", text: used + "/" + n })]),
+            slots,
+          ]));
+        });
+        hint();
+      }
+
+      async function place(wineId, shelf, slot) {
+        try {
+          await apiSend("/api/storages/" + storageId + "/placements", "POST", { wineId, shelf, slot });
+          closeSheet();
+          await load();
+        } catch (e) { flash("err", e.message); }
+      }
+
+      async function onEmpty(shelf, slot) {
+        if (moving) {
+          try {
+            await apiSend("/api/placements/" + moving.id, "PUT", { shelf, slot });
+            moving = null;
+            closeSheet();
+            return load();
+          } catch (e) { return flash("err", e.message); }
+        }
+        if (placeWineId) {
+          const id = placeWineId;
+          placeWineId = null;
+          history.replaceState(null, "", "/storage?id=" + storageId);
+          return place(id, shelf, slot);
+        }
+        if (!wines) wines = await apiGet("/api/wines?cellar=" + data.storage.cellar_id);
+        const search = el("input", { type: "search", placeholder: "Søg vin…" });
+        const list = el("div", { class: "pick-list" });
+        const draw = () => {
+          const q = search.value.trim().toLowerCase();
+          list.innerHTML = "";
+          const rows = wines.filter((w) => !q || [w.name, w.producer, w.vintage, w.region].join(" ").toLowerCase().includes(q));
+          if (!rows.length) list.appendChild(el("div", { class: "muted small", text: "Ingen vine fundet." }));
+          for (const w of rows.slice(0, 50)) {
+            list.appendChild(el("button", { type: "button", class: "pick", onclick: () => place(w.id, shelf, slot) }, [
+              w.color ? el("span", { class: "dot", style: "background:" + COLOR_DOTS[w.color] }) : null,
+              el("span", { text: wineLabel(w) }),
+              el("span", { class: "muted small", text: (w.producer ? " · " + w.producer : "") + (w.stored ? " · " + w.stored + " på lager" : "") }),
+            ]));
+          }
+        };
+        search.oninput = draw;
+        draw();
+        openSheet("Hylde " + shelf + ", plads " + slot + " — vælg vin", [
+          search, list,
+          el("a", { class: "small", href: "/add", style: "display:block;margin-top:10px", text: "Vinen findes ikke endnu? 📷 Tilføj ny vin" }),
+        ]);
+        setTimeout(() => search.focus(), 50);
+      }
+
+      function onFull(p) {
+        if (moving) { moving = null; closeSheet(); return render(); }
+        openSheet(wineLabel(p), [
+          el("div", { class: "small muted", text: (p.producer ? p.producer + " · " : "") + "Hylde " + p.shelf + ", plads " + p.slot }),
+          el("div", { class: "row", style: "margin-top:12px" }, [
+            el("a", { class: "btn small secondary", href: "/wine?id=" + p.wine_id, text: "Åbn vinen" }),
+            el("button", { type: "button", class: "btn small secondary", text: "Flyt", onclick: () => { moving = p; closeSheet(); render(); } }),
+            el("button", { type: "button", class: "btn small danger", text: "Tag ud", onclick: async () => {
+              await apiSend("/api/placements/" + p.id, "DELETE");
+              closeSheet();
+              load();
+            } }),
+          ]),
+        ]);
+      }
+
+      async function load() {
+        try {
+          data = await apiGet("/api/storages/" + storageId);
+        } catch (e) { return flash("err", e.message); }
+        if (placeWineId && !wines) wines = await apiGet("/api/wines?cellar=" + data.storage.cellar_id);
+        render();
+      }
+
+      function init() {
+        let read;
+        $("sheetClose").onclick = () => { moving = null; closeSheet(); render(); };
+        $("editBtn").onclick = () => {
+          read = renderStorageForm($("formBox"), data.storage, data.zones);
+          $("editForm").style.display = "";
+          $("rack").style.display = "none";
+        };
+        $("cancelEdit").onclick = () => { $("editForm").style.display = "none"; $("rack").style.display = ""; };
+        $("editForm").addEventListener("submit", async (e) => {
+          e.preventDefault();
+          try {
+            await apiSend("/api/storages/" + storageId, "PUT", read());
+            $("cancelEdit").onclick();
+            load();
+          } catch (err) { flash("err", err.message); }
+        });
+        $("deleteBtn").onclick = async () => {
+          if (!confirm("Slet " + data.storage.name + "? Vinene bliver i kælderen, men deres placering forsvinder.")) return;
+          await apiSend("/api/storages/" + storageId, "DELETE");
+          location.href = "/storages";
+        };
+        load();
+      }
+      Session.onReady(init, { requireCellar: false });
+    </script>
+  </body>
+</html>

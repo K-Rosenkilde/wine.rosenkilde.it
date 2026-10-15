@@ -21,7 +21,9 @@ subdomain apps (games., news., go. …). See README.md for setup and layout.
   `npm run migrate` locally (or pastes the SQL into the D1 console in the dashboard).
 
 ## Open tasks
-- Setup done (D1 `wine`, R2 `wine-photos`, secret ANTHROPIC_API_KEY). Remote migrations applied: 0001, 0002.
-- Migration 0003_events.sql (smagninger) must be applied remotely: `npm run migrate`.
+- Setup done (D1 `wine`, R2 `wine-photos`, secret ANTHROPIC_API_KEY). Remote migrations applied: 0001, 0002, 0003.
+- `npm run migrate` on Klaus's PC often fails with Cloudflare error 7403 (expired wrangler login):
+  fix with `npx wrangler logout` + `npx wrangler login`, or paste the SQL into the D1 console plus
+  `INSERT INTO d1_migrations (name) VALUES ('000N_name.sql');`.
 - Add a "Vin" card to the rosenkilde.it front page (`rosenkilde-frontpage`) and a row in the portal's
   `apps` table.

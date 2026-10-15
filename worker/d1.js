@@ -320,7 +320,7 @@ export async function placementsForWine(db, wineId) {
   return all(
     db
       .prepare(
-        `SELECT p.id, p.shelf, p.slot, s.id AS storage_id, s.name AS storage_name, s.kind
+        `SELECT p.id, p.shelf, p.slot, s.id AS storage_id, s.name AS storage_name, s.kind, s.shelf_slots
          FROM placements p JOIN storages s ON s.id = p.storage_id
          WHERE p.wine_id = ? ORDER BY s.name, p.shelf, p.slot`
       )
@@ -329,17 +329,17 @@ export async function placementsForWine(db, wineId) {
 }
 
 /** Insert or replace a storage with its zones. Returns the storage id. */
-export async function saveStorage(db, { id, cellarId, userId, name, kind, shelfSlots, note, zones }) {
+export async function saveStorage(db, { id, cellarId, userId, name, kind, shelfLayout, note, zones }) {
   let storageId = id;
   if (id) {
     await db
       .prepare("UPDATE storages SET name = ?, kind = ?, shelf_slots = ?, note = ? WHERE id = ?")
-      .bind(name, kind, shelfSlots.join(","), note, id)
+      .bind(name, kind, shelfLayout, note, id)
       .run();
   } else {
     const res = await db
       .prepare("INSERT INTO storages (cellar_id, name, kind, shelf_slots, note, created_by) VALUES (?, ?, ?, ?, ?, ?)")
-      .bind(cellarId, name, kind, shelfSlots.join(","), note, userId)
+      .bind(cellarId, name, kind, shelfLayout, note, userId)
       .run();
     storageId = res.meta.last_row_id;
   }

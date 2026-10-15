@@ -115,3 +115,35 @@ async function apiUpload(url, formData) {
   if (!res.ok) throw new Error(data.error || res.statusText);
   return data;
 }
+
+// ---- shelf layouts (fridges & racks) --------------------------------------
+// A shelf is a list of layers (bottom first), each a list of rows (front first)
+// with a bottle count: [[6, 6], [4, 4]] = lower layer 6 front + 6 back, upper
+// layer 4 + 4. Slots are numbered in that order: lower front, lower back, upper…
+
+function parseShelfLayouts(text) {
+  return String(text).split(",").map((sh) => sh.split("/").map((l) => l.split("+").map(Number)));
+}
+const LAYER_NAMES = { 1: [""], 2: ["Nederste lag", "Øverste lag"], 3: ["Nederste lag", "Midterste lag", "Øverste lag"] };
+const ROW_NAMES = { 1: [""], 2: ["foran", "bagved"] };
+
+/** The rows of a shelf with their labels and slot ranges, in storage order. */
+function shelfRows(layers) {
+  const rows = [];
+  let start = 1;
+  layers.forEach((layer, li) => {
+    layer.forEach((count, ri) => {
+      rows.push({ layer: li, row: ri, layerName: LAYER_NAMES[layers.length][li], rowName: ROW_NAMES[layer.length][ri], start, count });
+      start += count;
+    });
+  });
+  return rows;
+}
+
+/** "Hylde 2, nederste lag, bagved, nr. 3" or "Hylde 2, plads 3" for a plain shelf. */
+function slotLabel(layers, shelf, slot) {
+  if (!layers) return "Hylde " + shelf + ", plads " + slot;
+  const r = shelfRows(layers).find((x) => slot >= x.start && slot < x.start + x.count);
+  if (!r || (!r.layerName && !r.rowName)) return "Hylde " + shelf + ", plads " + slot;
+  return ["Hylde " + shelf, r.layerName.toLowerCase(), r.rowName, "nr. " + (slot - r.start + 1)].filter(Boolean).join(", ");
+}

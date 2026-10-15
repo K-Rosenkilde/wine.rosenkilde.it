@@ -154,7 +154,7 @@
         for (const p of data.placements) {
           box.appendChild(el("div", { class: "entry" }, [
             el("a", { href: "/storage?id=" + p.storage_id, text: (p.kind === "koleskab" ? "❄️ " : "🪵 ") + p.storage_name }),
-            el("span", { class: "muted", text: " · hylde " + p.shelf + ", plads " + p.slot }),
+            el("span", { class: "muted", text: " · " + slotLabel(parseShelfLayouts(p.shelf_slots)[p.shelf - 1], p.shelf, p.slot).toLowerCase() }),
           ]));
         }
       }

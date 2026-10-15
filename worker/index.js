@@ -415,15 +415,32 @@ app.get("/api/export.csv", async (c) => {
 
 const MAX_SHELVES = 50;
 const MAX_SLOTS = 200;
+const MAX_LAYERS = 3;
+const MAX_ROWS = 2;
 
 /** Validate a storage body. Returns { value } or { error }. */
 function cleanStorage(b) {
   const name = str(b.name, 100);
   if (!name) return { error: "Giv den et navn" };
   const kind = b.kind === "koleskab" ? "koleskab" : "reol";
-  const shelfSlots = (Array.isArray(b.shelves) ? b.shelves : []).map((n) => Math.trunc(num(n) ?? 0));
-  if (!shelfSlots.length || shelfSlots.length > MAX_SHELVES) return { error: `Antal hylder skal være 1–${MAX_SHELVES}` };
-  if (shelfSlots.some((n) => n < 1 || n > MAX_SLOTS)) return { error: `Flasker pr. hylde skal være 1–${MAX_SLOTS}` };
+  // Each shelf is a list of layers (bottom first), each a list of rows (front
+  // first) with a bottle count: [[6, 6], [4, 4]] = two layers, front and back.
+  // Older clients send plain numbers (one row per shelf).
+  const raw = Array.isArray(b.layouts) ? b.layouts : Array.isArray(b.shelves) ? b.shelves.map((n) => [[n]]) : [];
+  if (!raw.length || raw.length > MAX_SHELVES) return { error: `Antal hylder skal være 1–${MAX_SHELVES}` };
+  const layouts = [];
+  for (const shelf of raw) {
+    const layers = (Array.isArray(shelf) ? shelf : [[shelf]]).map((layer) =>
+      (Array.isArray(layer) ? layer : [layer]).map((n) => Math.trunc(num(n) ?? 0))
+    );
+    if (!layers.length || layers.length > MAX_LAYERS || layers.some((l) => !l.length || l.length > MAX_ROWS)) {
+      return { error: `En hylde kan have 1–${MAX_LAYERS} lag med højst ${MAX_ROWS} rækker (for og bag)` };
+    }
+    if (layers.flat().some((n) => n < 1 || n > MAX_SLOTS)) return { error: `Flasker pr. række skal være 1–${MAX_SLOTS}` };
+    if (layers.flat().reduce((x, y) => x + y, 0) > MAX_SLOTS) return { error: `Højst ${MAX_SLOTS} flasker pr. hylde` };
+    layouts.push(layers);
+  }
+  const shelfSlots = layouts.map((l) => l.flat().reduce((x, y) => x + y, 0));
   const zones = [];
   if (kind === "koleskab") {
     for (const z of Array.isArray(b.zones) ? b.zones : []) {
@@ -441,7 +458,7 @@ function cleanStorage(b) {
       if (zones[i].from_shelf <= zones[i - 1].to_shelf) return { error: "Zonerne må ikke overlappe" };
     }
   }
-  return { value: { name, kind, shelfSlots, note: str(b.note, 500), zones } };
+  return { value: { name, kind, shelfSlots, shelfLayout: layouts.map(layoutString).join(","), note: str(b.note, 500), zones } };
 }
 
 async function storageAccess(c, id) {
@@ -450,7 +467,12 @@ async function storageAccess(c, id) {
   const a = await access(c, storage.cellar_id);
   return a.error ? a : { ...a, storage };
 }
-const shelfList = (s) => s.shelf_slots.split(",").map(Number);
+// shelf_slots text: shelves separated by ",", layers (bottom first) by "/",
+// rows within a layer (front first) by "+". "6" = one row of 6; "6+6/4+4" =
+// a lower layer of 6 front + 6 back and an upper layer of 4 + 4.
+const layoutString = (layers) => layers.map((l) => l.join("+")).join("/");
+const shelfLayouts = (s) => s.shelf_slots.split(",").map((sh) => sh.split("/").map((l) => l.split("+").map(Number)));
+const shelfList = (s) => shelfLayouts(s).map((l) => l.flat().reduce((x, y) => x + y, 0));
 
 app.get("/api/storages", async (c) => {
   const cellarId = Number(c.req.query("cellar"));
@@ -460,7 +482,7 @@ app.get("/api/storages", async (c) => {
   const rows = await d1.listStorages(DB(c), cellarId);
   return c.json(rows.map((s) => {
     const shelves = shelfList(s);
-    return { ...s, shelves, capacity: shelves.reduce((x, y) => x + y, 0), zones: zones.filter((z) => z.storage_id === s.id) };
+    return { ...s, shelves, layouts: shelfLayouts(s), capacity: shelves.reduce((x, y) => x + y, 0), zones: zones.filter((z) => z.storage_id === s.id) };
   }));
 });
 
@@ -480,7 +502,7 @@ app.get("/api/storages/:id", async (c) => {
   if (sa.error) return deny(c, sa.error);
   const db = DB(c);
   return c.json({
-    storage: { ...sa.storage, shelves: shelfList(sa.storage) },
+    storage: { ...sa.storage, shelves: shelfList(sa.storage), layouts: shelfLayouts(sa.storage) },
     zones: await d1.zonesForStorage(db, sa.storage.id),
     placements: await d1.placementsForStorage(db, sa.storage.id),
     canDelete: sa.role === "owner" || sa.storage.created_by === sa.user.id,

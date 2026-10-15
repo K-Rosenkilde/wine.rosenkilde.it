@@ -2,7 +2,8 @@
 
 // Shared create/edit form for wine fridges (vinkøleskab) and racks (vinreol).
 // renderStorageForm(box, storage?, zones?) returns a function that reads the
-// form into the API body: { name, kind, shelves: [slots per shelf], note, zones }.
+// form into the API body: { name, kind, layouts: [shelf layers], note, zones }
+// (see parseShelfLayouts in app.js for the layout shape).
 
 const ZONE_COLORS = ["#5aa9e6", "#7fb069", "#d9a441", "#e07a5f", "#b388eb", "#4ecdc4"];
 const KIND_LABELS = { koleskab: "Vinkøleskab", reol: "Vinreol" };
@@ -14,10 +15,66 @@ function zoneText(z) {
   return [z.name, t].filter(Boolean).join(" ") + " (" + shelves + ")";
 }
 
+// Shelf types offered in the form. `fields` are the row labels in storage order
+// (bottom layer first, front first); `shape` turns their counts into layers.
+const SHELF_TYPES = {
+  enkel: { label: "Én række", fields: ["Flasker"], shape: (c) => [[c[0]]], defaults: [6] },
+  forbag: { label: "Én række, for og bag", fields: ["Foran", "Bagved"], shape: (c) => [[c[0], c[1]]], defaults: [6, 6] },
+  tolag: {
+    label: "2 lag, for og bag",
+    fields: ["Nederst foran", "Nederst bagved", "Øverst foran", "Øverst bagved"],
+    shape: (c) => [[c[0], c[1]], [c[2], c[3]]],
+    defaults: [6, 6, 4, 4],
+  },
+};
+function shelfType(layers) {
+  if (layers.length === 1) return layers[0].length === 1 ? "enkel" : "forbag";
+  return "tolag";
+}
+const copyLayers = (layers) => layers.map((l) => l.slice());
+const shelfTotal = (layers) => layers.flat().reduce((a, b) => a + b, 0);
+
+/** Type picker + bottle counts for one shelf layout. onChange(layers) on every valid edit. */
+function layoutEditor(layers, onChange) {
+  let type = shelfType(layers);
+  let counts = layers.flat();
+  const node = el("div", { class: "layout-editor" });
+  const select = el("select", {}, Object.entries(SHELF_TYPES).map(([k, t]) => el("option", { value: k, text: t.label })));
+  select.value = type;
+  const fieldsRow = el("div", { class: "row" });
+  select.onchange = () => {
+    type = select.value;
+    const d = SHELF_TYPES[type].defaults;
+    counts = d.map((v, i) => (i === 0 && counts[0] ? counts[0] : v));
+    drawFields();
+    onChange(SHELF_TYPES[type].shape(counts));
+  };
+  function drawFields() {
+    fieldsRow.innerHTML = "";
+    SHELF_TYPES[type].fields.forEach((label, i) => {
+      const inp = el("input", { type: "number", inputmode: "numeric", min: "1", max: "200" });
+      inp.value = String(counts[i] ?? SHELF_TYPES[type].defaults[i]);
+      inp.addEventListener("input", () => {
+        const n = Math.trunc(Number(inp.value));
+        if (inp.value.trim() === "" || n < 1 || n > 200) return;
+        counts[i] = n;
+        onChange(SHELF_TYPES[type].shape(counts));
+      });
+      fieldsRow.appendChild(el("div", { style: "flex:1 1 70px" }, [el("label", { text: label }), inp]));
+    });
+  }
+  drawFields();
+  node.appendChild(select);
+  node.appendChild(fieldsRow);
+  return node;
+}
+
 function renderStorageForm(box, storage, zones) {
   box.innerHTML = "";
   let kind = storage ? storage.kind : "koleskab";
-  let shelves = storage ? storage.shelves.slice() : [6, 6, 6, 6, 6];
+  // shelves: one layout (list of layers) per shelf, top shelf first.
+  let shelves = storage ? storage.layouts.map(copyLayers) : Array.from({ length: 5 }, () => [[6]]);
+  let template = copyLayers(shelves[shelves.length - 1]);
   let zoneRows = zones && zones.length
     ? zones.map((z) => ({ ...z }))
     : storage ? [] : [{ name: "", temp: 12, from_shelf: 1, to_shelf: shelves.length }];
@@ -29,7 +86,12 @@ function renderStorageForm(box, storage, zones) {
   );
   kindBtns.forEach((b) => kindSeg.appendChild(b));
   const countIn = el("input", { type: "number", inputmode: "numeric", min: "1", max: "50", value: String(shelves.length) });
-  const perIn = el("input", { type: "number", inputmode: "numeric", min: "1", max: "200", value: String(shelves[0] || 6) });
+  // The layout for all shelves; "Tilpas hver hylde" can change single shelves.
+  const templateBox = el("div", {}, [layoutEditor(template, (layers) => {
+    template = layers;
+    shelves = shelves.map(() => copyLayers(layers));
+    drawShelves();
+  })]);
   const shelvesBox = el("div");
   const zonesWrap = el("div");
   const noteIn = el("input", { type: "text", placeholder: "f.eks. står i bryggerset", value: storage ? storage.note || "" : "" });
@@ -52,8 +114,7 @@ function renderStorageForm(box, storage, zones) {
     const n = readInt(countIn, 50);
     if (!n || n === shelves.length) return;
     const old = shelves.length;
-    const def = readInt(perIn, 200) || shelves[shelves.length - 1] || 6;
-    shelves = Array.from({ length: n }, (_, i) => shelves[i] ?? def);
+    shelves = Array.from({ length: n }, (_, i) => shelves[i] ?? copyLayers(template));
     zoneRows = zoneRows.filter((z) => z.from_shelf <= n);
     for (const z of zoneRows) {
       if (z.to_shelf === old || z.to_shelf > n) z.to_shelf = n;
@@ -61,24 +122,20 @@ function renderStorageForm(box, storage, zones) {
     draw();
   }
   countIn.addEventListener("blur", () => { if (!readInt(countIn, 50)) countIn.value = String(shelves.length); });
-  perIn.addEventListener("input", () => {
-    const def = readInt(perIn, 200);
-    if (!def) return;
-    shelves = shelves.map(() => def);
-    draw();
-  });
 
   function drawShelves() {
+    const wasOpen = shelvesBox.querySelector("details")?.open;
     shelvesBox.innerHTML = "";
-    const total = shelves.reduce((a, b) => a + b, 0);
-    const det = el("details", {}, [el("summary", { text: `Tilpas hver hylde (i alt ${total} flasker)` })]);
-    const grid = el("div", { class: "row" });
-    shelves.forEach((n, i) => {
-      const inp = el("input", { type: "number", inputmode: "numeric", min: "1", max: "200", value: String(n) });
-      inp.addEventListener("change", () => { shelves[i] = Math.max(1, Math.min(200, Math.trunc(Number(inp.value) || 1))); drawShelves(); det.open = true; });
-      grid.appendChild(el("div", { style: "flex:1 1 90px" }, [el("label", { text: "Hylde " + (i + 1) }), inp]));
+    const totalText = () => `Tilpas hver hylde (i alt ${shelves.reduce((a, l) => a + shelfTotal(l), 0)} flasker)`;
+    const summary = el("summary", { text: totalText() });
+    const det = el("details", {}, [summary]);
+    det.open = !!wasOpen;
+    shelves.forEach((layers, i) => {
+      det.appendChild(el("div", { class: "shelf-edit" }, [
+        el("div", { class: "small", style: "font-weight:700", text: "Hylde " + (i + 1) }),
+        layoutEditor(layers, (l) => { shelves[i] = l; summary.textContent = totalText(); }),
+      ]));
     });
-    det.appendChild(grid);
     shelvesBox.appendChild(det);
   }
 
@@ -129,10 +186,10 @@ function renderStorageForm(box, storage, zones) {
   box.appendChild(nameIn);
   box.appendChild(el("label", { text: "Type" }));
   box.appendChild(kindSeg);
-  box.appendChild(el("div", { class: "row" }, [
-    el("div", {}, [el("label", { text: "Antal hylder" }), countIn]),
-    el("div", {}, [el("label", { text: "Flasker pr. hylde" }), perIn]),
-  ]));
+  box.appendChild(el("label", { text: "Antal hylder" }));
+  box.appendChild(countIn);
+  box.appendChild(el("label", { text: "Hyldetype (for alle hylder)" }));
+  box.appendChild(templateBox);
   box.appendChild(shelvesBox);
   box.appendChild(zonesWrap);
   box.appendChild(el("label", { text: "Note" }));
@@ -142,7 +199,7 @@ function renderStorageForm(box, storage, zones) {
   return () => ({
     name: nameIn.value.trim(),
     kind,
-    shelves,
+    layouts: shelves,
     note: noteIn.value.trim(),
     zones: kind === "koleskab" ? zoneRows : [],
   });

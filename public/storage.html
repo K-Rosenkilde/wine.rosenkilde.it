@@ -100,17 +100,32 @@
             ]));
           }
           lastZone = zone ? zone.id : null;
-          const slots = el("div", { class: "slots" });
-          for (let k = 1; k <= n; k++) {
+          const slotBtn = (k) => {
             const p = taken.get(shelf + ":" + k);
             if (p) {
-              slots.appendChild(el("button", { type: "button", class: "slot full" + (["hvid", "mousserende", "rosé"].includes(p.color) ? " light" : "") + (moving && moving.id === p.id ? " moving" : ""),
+              return el("button", { type: "button", class: "slot full" + (["hvid", "mousserende", "rosé"].includes(p.color) ? " light" : "") + (moving && moving.id === p.id ? " moving" : ""),
                 title: wineLabel(p), style: "--wine:" + (COLOR_DOTS[p.color] || "#9b1c31"),
-                onclick: () => onFull(p) }, [el("span", { text: (p.vintage ? "’" + String(p.vintage).slice(2) : "🍷") })]));
-            } else {
-              slots.appendChild(el("button", { type: "button", class: "slot" + (moving || placeWineId ? " target" : ""),
-                title: "Hylde " + shelf + ", plads " + k, onclick: () => onEmpty(shelf, k) }, [el("span", { text: "+" })]));
+                onclick: () => onFull(p) }, [el("span", { text: (p.vintage ? "’" + String(p.vintage).slice(2) : "🍷") })]);
             }
+            return el("button", { type: "button", class: "slot" + (moving || placeWineId ? " target" : ""),
+              title: slotLabel(s.layouts[i], shelf, k), onclick: () => onEmpty(shelf, k) }, [el("span", { text: "+" })]);
+          };
+          // Plain shelf: one row of slots. Layered shelf: the top layer first (as you
+          // see it), each layer with its front and back row labelled.
+          const rows = shelfRows(s.layouts[i]);
+          const slots = el("div");
+          const layers = [...new Set(rows.map((r) => r.layer))].reverse();
+          for (const li of layers) {
+            const layerRows = rows.filter((r) => r.layer === li);
+            const layerBox = el("div", { class: layerRows[0].layerName ? "layer" : "" });
+            if (layerRows[0].layerName) layerBox.appendChild(el("div", { class: "layer-name", text: layerRows[0].layerName }));
+            for (const r of layerRows) {
+              const line = el("div", { class: "slots" + (r.rowName ? " labelled" : "") });
+              if (r.rowName) line.appendChild(el("span", { class: "row-name", text: r.rowName }));
+              for (let k = r.start; k < r.start + r.count; k++) line.appendChild(slotBtn(k));
+              layerBox.appendChild(line);
+            }
+            slots.appendChild(layerBox);
           }
           const used = data.placements.filter((p) => p.shelf === shelf).length;
           rack.appendChild(el("div", { class: "shelf", style: zone ? "border-left-color:" + zone.color : "" }, [
@@ -162,7 +177,7 @@
         };
         search.oninput = draw;
         draw();
-        openSheet("Hylde " + shelf + ", plads " + slot + " — vælg vin", [
+        openSheet(slotLabel(data.storage.layouts[shelf - 1], shelf, slot) + " — vælg vin", [
           search, list,
           el("a", { class: "small", href: "/add", style: "display:block;margin-top:10px", text: "Vinen findes ikke endnu? 📷 Tilføj ny vin" }),
         ]);
@@ -172,7 +187,7 @@
       function onFull(p) {
         if (moving) { moving = null; closeSheet(); return render(); }
         openSheet(wineLabel(p), [
-          el("div", { class: "small muted", text: (p.producer ? p.producer + " · " : "") + "Hylde " + p.shelf + ", plads " + p.slot }),
+          el("div", { class: "small muted", text: (p.producer ? p.producer + " · " : "") + slotLabel(data.storage.layouts[p.shelf - 1], p.shelf, p.slot) }),
           el("div", { class: "row", style: "margin-top:12px" }, [
             el("a", { class: "btn small secondary", href: "/wine?id=" + p.wine_id, text: "Åbn vinen" }),
             el("button", { type: "button", class: "btn small secondary", text: "Flyt", onclick: () => { moving = p; closeSheet(); render(); } }),

@@ -11,7 +11,8 @@ and — if you bought it — the purchase (date, shop/webshop + link, price, qua
 - **Photos** — kept permanently in R2 (full size ~2000px + 400px thumbnail, resized in the browser).
   Several per wine (forside / bagside / andet), only served to cellar members.
 - **Vinkøleskabe & vinreoler** — define fridges/racks with a number of shelves and bottles per shelf
-  (each shelf can differ); fridges get temperature zones (name, °C, shelf range). Tap a spot to put a
+  (each shelf can differ, and a shelf can be one row, front + back, or 2 layers with front + back,
+  e.g. 6+6 below and 4+4 on top); fridges get temperature zones (name, °C, shelf range). Tap a spot to put a
   bottle there, move it or take it out; each wine page shows where its bottles are.
 - **Smagninger** — a tasting event: place, date/time, number of wines, one house or several. Add each
   wine by photo (label read like everywhere else) or from the cellar, with the normal price and the

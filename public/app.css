@@ -175,3 +175,10 @@ details summary { cursor: pointer; color: var(--accent); font-weight: 600; margi
 .rank-row:first-of-type { border-top: none; }
 .rank-no { width: 28px; text-align: center; }
 .event-wine .wine-item .title, .event-wine .wine-item .meta { white-space: normal; }
+.layer { border-top: 1px dashed var(--line); padding-top: 6px; margin-top: 6px; }
+.layer:first-child { border-top: none; margin-top: 0; padding-top: 0; }
+.layer-name { font-size: 0.72rem; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; margin-bottom: 4px; }
+.slots.labelled { align-items: center; margin-bottom: 6px; }
+.row-name { font-size: 0.72rem; color: var(--muted); width: 48px; flex: 0 0 auto; }
+.shelf-edit { border-top: 1px solid var(--line); padding: 10px 0 4px; margin-top: 8px; }
+.layout-editor select { margin-bottom: 2px; }

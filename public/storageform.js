@@ -34,19 +34,36 @@ function renderStorageForm(box, storage, zones) {
   const zonesWrap = el("div");
   const noteIn = el("input", { type: "text", placeholder: "f.eks. står i bryggerset", value: storage ? storage.note || "" : "" });
 
-  // Changing the shelf count or default keeps any per-shelf counts already set.
-  countIn.addEventListener("input", () => {
-    const n = Math.max(1, Math.min(50, Math.trunc(Number(countIn.value) || 1)));
-    const def = Math.max(1, Math.trunc(Number(perIn.value) || 1));
+  // A number field while typing: "" or out of range is ignored until it is valid,
+  // so the field can be cleared and retyped (and is never rewritten under the cursor).
+  const readInt = (input, max) => {
+    const n = Math.trunc(Number(input.value));
+    return input.value.trim() !== "" && n >= 1 && n <= max ? n : null;
+  };
+
+  // Changing the shelf count keeps any per-shelf counts already set. A zone that
+  // reached the bottom shelf keeps reaching it; zones beyond a smaller count shrink.
+  // Applied after a short pause (or on leaving the field), so typing "20" never
+  // passes through a 2-shelf layout that would cut the zones short.
+  let countTimer;
+  countIn.addEventListener("input", () => { clearTimeout(countTimer); countTimer = setTimeout(applyCount, 600); });
+  countIn.addEventListener("change", () => { clearTimeout(countTimer); applyCount(); });
+  function applyCount() {
+    const n = readInt(countIn, 50);
+    if (!n || n === shelves.length) return;
+    const old = shelves.length;
+    const def = readInt(perIn, 200) || shelves[shelves.length - 1] || 6;
     shelves = Array.from({ length: n }, (_, i) => shelves[i] ?? def);
+    zoneRows = zoneRows.filter((z) => z.from_shelf <= n);
     for (const z of zoneRows) {
-      z.to_shelf = Math.min(z.to_shelf, n);
-      z.from_shelf = Math.min(z.from_shelf, z.to_shelf);
+      if (z.to_shelf === old || z.to_shelf > n) z.to_shelf = n;
     }
     draw();
-  });
+  }
+  countIn.addEventListener("blur", () => { if (!readInt(countIn, 50)) countIn.value = String(shelves.length); });
   perIn.addEventListener("input", () => {
-    const def = Math.max(1, Math.min(200, Math.trunc(Number(perIn.value) || 1)));
+    const def = readInt(perIn, 200);
+    if (!def) return;
     shelves = shelves.map(() => def);
     draw();
   });
@@ -104,7 +121,6 @@ function renderStorageForm(box, storage, zones) {
 
   function draw() {
     kindBtns.forEach((b, i) => b.classList.toggle("active", Object.keys(KIND_LABELS)[i] === kind));
-    if (Number(countIn.value) !== shelves.length) countIn.value = String(shelves.length);
     drawShelves();
     drawZones();
   }

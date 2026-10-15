@@ -561,6 +561,183 @@ app.delete("/api/placements/:id", async (c) => {
   return c.json({ ok: true });
 });
 
+// ============================ TASTING EVENTS ==============================
+// A smagning: place, date/time, one house or several. Wines are added by photo
+// (label read via /api/scan) or picked from the cellar, each with a normal price
+// and the offer price on the day. Every member keeps their own note + rating,
+// stored as an ordinary tasting linked to the event.
+
+function cleanEvent(b) {
+  const planned = Math.trunc(num(b.planned_count) ?? 0);
+  return {
+    title: str(b.title, 150),
+    place: str(b.place, 200),
+    date: isoDate(b.date),
+    time: /^\d{2}:\d{2}$/.test(String(b.time || "")) ? String(b.time) : "",
+    kind: b.kind === "hus" ? "hus" : "blandet",
+    house: b.kind === "hus" ? str(b.house, 200) : "",
+    planned_count: planned > 0 && planned <= 200 ? planned : null,
+    note: str(b.note, 2000),
+  };
+}
+function cleanPrices(b) {
+  const price = (v) => {
+    const n = num(v);
+    return n !== null && n >= 0 && n < 1e7 ? Math.round(n * 100) / 100 : null;
+  };
+  return {
+    normal_price: price(b.normal_price),
+    offer_price: price(b.offer_price),
+    currency: str(b.currency, 3).toUpperCase() || "DKK",
+  };
+}
+
+async function eventAccess(c, id) {
+  const event = await d1.getEvent(DB(c), id);
+  if (!event) return { error: 404 };
+  const a = await access(c, event.cellar_id);
+  return a.error ? a : { ...a, event };
+}
+async function eventWineAccess(c, id) {
+  const ew = await d1.getEventWine(DB(c), id);
+  if (!ew) return { error: 404 };
+  const ea = await eventAccess(c, ew.event_id);
+  return ea.error ? ea : { ...ea, ew };
+}
+
+app.get("/api/events", async (c) => {
+  const cellarId = Number(c.req.query("cellar"));
+  const a = await access(c, cellarId);
+  if (a.error) return deny(c, a.error);
+  return c.json(await d1.listEvents(DB(c), cellarId));
+});
+
+app.post("/api/events", async (c) => {
+  const b = await body(c);
+  const cellarId = Number(b.cellarId);
+  const a = await access(c, cellarId);
+  if (a.error) return deny(c, a.error);
+  const e = cleanEvent(b);
+  if (!e.title) e.title = e.kind === "hus" && e.house ? "Smagning hos " + e.house : "Vinsmagning";
+  const id = await d1.createEvent(DB(c), cellarId, a.user.id, e);
+  return c.json({ id }, 201);
+});
+
+app.get("/api/events/:id", async (c) => {
+  const ea = await eventAccess(c, Number(c.req.param("id")));
+  if (ea.error) return deny(c, ea.error);
+  const db = DB(c);
+  const tastings = await d1.eventTastings(db, ea.event.id);
+  const wines = (await d1.eventWines(db, ea.event.id)).map((w) => {
+    const ts = tastings.filter((t) => t.wine_id === w.wine_id);
+    const rated = ts.filter((t) => t.rating !== null);
+    return {
+      ...w,
+      tastings: ts,
+      avg_rating: rated.length ? Math.round((rated.reduce((x, t) => x + t.rating, 0) / rated.length) * 10) / 10 : null,
+    };
+  });
+  return c.json({
+    event: ea.event,
+    wines,
+    me: ea.user.id,
+    canManage: ea.role === "owner" || ea.event.created_by === ea.user.id,
+  });
+});
+
+app.put("/api/events/:id", async (c) => {
+  const ea = await eventAccess(c, Number(c.req.param("id")));
+  if (ea.error) return deny(c, ea.error);
+  const e = cleanEvent(await body(c));
+  if (!e.title) return c.json({ error: "Giv smagningen en titel" }, 400);
+  await d1.updateEvent(DB(c), ea.event.id, e);
+  return c.json({ ok: true });
+});
+
+app.delete("/api/events/:id", async (c) => {
+  const ea = await eventAccess(c, Number(c.req.param("id")));
+  if (ea.error) return deny(c, ea.error);
+  if (ea.role !== "owner" && ea.event.created_by !== ea.user.id) {
+    return c.json({ error: "Kun den der oprettede smagningen eller kælderens ejer kan slette den" }, 403);
+  }
+  await d1.deleteEvent(DB(c), ea.event.id);
+  return c.json({ ok: true });
+});
+
+// Add a wine to the tasting: an existing cellar wine ({ wineId }) or a new one
+// from the scanned label ({ name, producer, ..., photoIds }), plus prices.
+app.post("/api/events/:id/wines", async (c) => {
+  const ea = await eventAccess(c, Number(c.req.param("id")));
+  if (ea.error) return deny(c, ea.error);
+  const b = await body(c);
+  const db = DB(c);
+  let wineId;
+  if (b.wineId) {
+    const wine = await d1.getWine(db, Number(b.wineId));
+    if (!wine || wine.cellar_id !== ea.event.cellar_id) return c.json({ error: "Vælg en vin fra kælderen" }, 400);
+    wineId = wine.id;
+  } else {
+    const w = cleanWine(b);
+    if (!w.producer && ea.event.kind === "hus") w.producer = ea.event.house;
+    if (!w.name && !w.producer) return c.json({ error: "Skriv i det mindste navn eller producent" }, 400);
+    if (!w.name) w.name = w.producer;
+    wineId = await d1.createWine(db, ea.event.cellar_id, ea.user.id, w);
+    await d1.attachPhotos(db, ea.event.cellar_id, wineId, b.photoIds);
+  }
+  if (!(await d1.addEventWine(db, ea.event.id, wineId, ea.user.id, cleanPrices(b)))) {
+    return c.json({ error: "Vinen er allerede med i smagningen" }, 409);
+  }
+  if (hasTasting(b.tasting)) {
+    await d1.upsertEventTasting(db, ea.event.id, wineId, ea.user.id, eventTasting(ea.event, b.tasting));
+  }
+  return c.json({ wineId }, 201);
+});
+
+app.put("/api/event-wines/:id", async (c) => {
+  const wa = await eventWineAccess(c, Number(c.req.param("id")));
+  if (wa.error) return deny(c, wa.error);
+  await d1.updateEventWinePrices(DB(c), wa.ew.id, cleanPrices(await body(c)));
+  return c.json({ ok: true });
+});
+
+app.delete("/api/event-wines/:id", async (c) => {
+  const wa = await eventWineAccess(c, Number(c.req.param("id")));
+  if (wa.error) return deny(c, wa.error);
+  if (wa.role !== "owner" && wa.event.created_by !== wa.user.id && wa.ew.created_by !== wa.user.id) return deny(c, 403);
+  await d1.deleteEventWine(DB(c), wa.ew);
+  return c.json({ ok: true });
+});
+
+/** A note taken at the event is dated and placed at the event. */
+function eventTasting(event, t) {
+  return { ...cleanTasting(t), date: event.date, place: event.place || event.title };
+}
+
+// My note + rating for a wine at this tasting (one per person, editable).
+app.put("/api/event-wines/:id/tasting", async (c) => {
+  const wa = await eventWineAccess(c, Number(c.req.param("id")));
+  if (wa.error) return deny(c, wa.error);
+  const id = await d1.upsertEventTasting(DB(c), wa.event.id, wa.ew.wine_id, wa.user.id, eventTasting(wa.event, await body(c)));
+  return c.json({ id });
+});
+
+// "Jeg købte": record a purchase at the offer price (or the normal price).
+app.post("/api/event-wines/:id/purchase", async (c) => {
+  const wa = await eventWineAccess(c, Number(c.req.param("id")));
+  if (wa.error) return deny(c, wa.error);
+  const b = await body(c);
+  const p = cleanPurchase({
+    date: wa.event.date,
+    shop: wa.event.kind === "hus" && wa.event.house ? wa.event.house : wa.event.place || wa.event.title,
+    price: wa.ew.offer_price ?? wa.ew.normal_price,
+    currency: wa.ew.currency,
+    quantity: b.quantity,
+    note: "Købt til " + wa.event.title,
+  });
+  const id = await d1.createEntry(DB(c), "purchases", d1.PURCHASE_FIELDS, wa.ew.wine_id, wa.user.id, p);
+  return c.json({ id }, 201);
+});
+
 app.all("/api/*", (c) => deny(c, 404));
 
 export default app;

@@ -22,5 +22,6 @@ subdomain apps (games., news., go. …). See README.md for setup and layout.
 
 ## Open tasks
 - Setup done (D1 `wine`, R2 `wine-photos`, secret ANTHROPIC_API_KEY). Remote migrations applied: 0001, 0002.
+- Migration 0003_events.sql (smagninger) must be applied remotely: `npm run migrate`.
 - Add a "Vin" card to the rosenkilde.it front page (`rosenkilde-frontpage`) and a row in the portal's
   `apps` table.

@@ -165,3 +165,13 @@ details summary { cursor: pointer; color: var(--accent); font-weight: 600; margi
 }
 .pick-list { margin-top: 10px; }
 .pick { display: block; width: 100%; text-align: left; background: var(--panel-2); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; margin-bottom: 6px; cursor: pointer; }
+
+/* tasting events */
+.sub-h { font-size: 0.95rem; margin: 18px 0 4px; }
+.event-wine .thumb { cursor: zoom-in; }
+.price-line { margin-top: 10px; font-size: 0.9rem; color: var(--accent); }
+.others { margin-top: 10px; padding: 8px 10px; background: var(--panel-2); border-radius: 10px; display: grid; gap: 4px; }
+.rank-row { display: flex; gap: 10px; align-items: center; padding: 6px 0; border-top: 1px solid var(--line); }
+.rank-row:first-of-type { border-top: none; }
+.rank-no { width: 28px; text-align: center; }
+.event-wine .wine-item .title, .event-wine .wine-item .meta { white-space: normal; }

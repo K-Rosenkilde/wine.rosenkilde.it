@@ -218,8 +218,9 @@ export async function tastingsForWine(db, wineId) {
   return all(
     db
       .prepare(
-        `SELECT t.*, u.name AS user_name, u.email AS user_email
+        `SELECT t.*, u.name AS user_name, u.email AS user_email, e.title AS event_title
          FROM tastings t JOIN users u ON u.id = t.user_id
+         LEFT JOIN events e ON e.id = t.event_id
          WHERE t.wine_id = ? ORDER BY t.date DESC, t.id DESC`
       )
       .bind(wineId)
@@ -385,4 +386,117 @@ export async function movePlacement(db, id, shelf, slot) {
 }
 export async function deletePlacement(db, id) {
   await db.prepare("DELETE FROM placements WHERE id = ?").bind(id).run();
+}
+
+// ---- tasting events (smagninger) -------------------------------------------
+
+export const EVENT_FIELDS = ["title", "place", "date", "time", "kind", "house", "planned_count", "note"];
+
+export async function listEvents(db, cellarId) {
+  return all(
+    db
+      .prepare(
+        `SELECT e.*, (SELECT COUNT(*) FROM event_wines ew WHERE ew.event_id = e.id) AS wines
+         FROM events e WHERE e.cellar_id = ? ORDER BY e.date DESC, e.time DESC, e.id DESC`
+      )
+      .bind(cellarId)
+  );
+}
+export async function getEvent(db, id) {
+  return db.prepare("SELECT * FROM events WHERE id = ?").bind(id).first();
+}
+export async function createEvent(db, cellarId, userId, e) {
+  const res = await db
+    .prepare(
+      `INSERT INTO events (cellar_id, created_by, ${EVENT_FIELDS.join(", ")})
+       VALUES (?, ?, ${EVENT_FIELDS.map(() => "?").join(", ")})`
+    )
+    .bind(cellarId, userId, ...EVENT_FIELDS.map((f) => e[f]))
+    .run();
+  return res.meta.last_row_id;
+}
+export async function updateEvent(db, id, e) {
+  await db
+    .prepare(`UPDATE events SET ${EVENT_FIELDS.map((f) => f + " = ?").join(", ")} WHERE id = ?`)
+    .bind(...EVENT_FIELDS.map((f) => e[f]), id)
+    .run();
+}
+export async function deleteEvent(db, id) {
+  await db.prepare("DELETE FROM events WHERE id = ?").bind(id).run();
+}
+
+/** Wines poured at an event, in order, with cover photo and prices. */
+export async function eventWines(db, eventId) {
+  return all(
+    db
+      .prepare(
+        `SELECT ew.id, ew.wine_id, ew.position, ew.normal_price, ew.offer_price, ew.currency, ew.created_by,
+                w.name, w.producer, w.vintage, w.grapes, w.country, w.region, w.appellation, w.color, w.alcohol,
+                (SELECT ph.id FROM photos ph WHERE ph.wine_id = w.id ORDER BY ph.id LIMIT 1) AS cover_id
+         FROM event_wines ew JOIN wines w ON w.id = ew.wine_id
+         WHERE ew.event_id = ? ORDER BY ew.position, ew.id`
+      )
+      .bind(eventId)
+  );
+}
+export async function eventTastings(db, eventId) {
+  return all(
+    db
+      .prepare(
+        `SELECT t.*, u.name AS user_name, u.email AS user_email
+         FROM tastings t JOIN users u ON u.id = t.user_id
+         WHERE t.event_id = ? ORDER BY t.id`
+      )
+      .bind(eventId)
+  );
+}
+export async function addEventWine(db, eventId, wineId, userId, p) {
+  const pos = await db.prepare("SELECT COALESCE(MAX(position), 0) + 1 AS n FROM event_wines WHERE event_id = ?").bind(eventId).first();
+  const res = await db
+    .prepare(
+      `INSERT INTO event_wines (event_id, wine_id, position, normal_price, offer_price, currency, created_by)
+       VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT(event_id, wine_id) DO NOTHING`
+    )
+    .bind(eventId, wineId, pos.n, p.normal_price, p.offer_price, p.currency, userId)
+    .run();
+  return res.meta.changes > 0;
+}
+export async function getEventWine(db, id) {
+  return db.prepare("SELECT * FROM event_wines WHERE id = ?").bind(id).first();
+}
+export async function updateEventWinePrices(db, id, p) {
+  await db
+    .prepare("UPDATE event_wines SET normal_price = ?, offer_price = ?, currency = ? WHERE id = ?")
+    .bind(p.normal_price, p.offer_price, p.currency, id)
+    .run();
+}
+export async function deleteEventWine(db, ew) {
+  // The wine stays in the cellar; only its place in this tasting goes. Notes made
+  // at the event stay on the wine but are no longer linked to the event.
+  await db.batch([
+    db.prepare("UPDATE tastings SET event_id = NULL WHERE event_id = ? AND wine_id = ?").bind(ew.event_id, ew.wine_id),
+    db.prepare("DELETE FROM event_wines WHERE id = ?").bind(ew.id),
+  ]);
+}
+/** Create or replace the current user's note for a wine at an event. */
+export async function upsertEventTasting(db, eventId, wineId, userId, t) {
+  const existing = await db
+    .prepare("SELECT id FROM tastings WHERE event_id = ? AND wine_id = ? AND user_id = ?")
+    .bind(eventId, wineId, userId)
+    .first();
+  if (existing) {
+    await db
+      .prepare(`UPDATE tastings SET ${TASTING_FIELDS.map((f) => f + " = ?").join(", ")} WHERE id = ?`)
+      .bind(...TASTING_FIELDS.map((f) => t[f]), existing.id)
+      .run();
+    return existing.id;
+  }
+  const res = await db
+    .prepare(
+      `INSERT INTO tastings (wine_id, user_id, event_id, ${TASTING_FIELDS.join(", ")})
+       VALUES (?, ?, ?, ${TASTING_FIELDS.map(() => "?").join(", ")})`
+    )
+    .bind(wineId, userId, eventId, ...TASTING_FIELDS.map((f) => t[f]))
+    .run();
+  return res.meta.last_row_id;
 }

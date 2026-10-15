@@ -13,6 +13,10 @@ and — if you bought it — the purchase (date, shop/webshop + link, price, qua
 - **Vinkøleskabe & vinreoler** — define fridges/racks with a number of shelves and bottles per shelf
   (each shelf can differ); fridges get temperature zones (name, °C, shelf range). Tap a spot to put a
   bottle there, move it or take it out; each wine page shows where its bottles are.
+- **Smagninger** — a tasting event: place, date/time, number of wines, one house or several. Add each
+  wine by photo (label read like everywhere else) or from the cellar, with the normal price and the
+  offer price on the day. Every member rates and notes each wine (saved as their tasting, linked to the
+  event); the page ranks the wines by average rating, and "Jeg købte…" records a purchase at the offer.
 - **List** — search, filter (type, country, bought / not bought), sort (newest, rating, last tasted,
   vintage, name). **Eksportér CSV** downloads the whole cellar (semicolon-separated, opens in Excel).
 

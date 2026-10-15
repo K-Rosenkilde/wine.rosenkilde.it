@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="da">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#1a0f14" />
+    <meta name="robots" content="noindex" />
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <link rel="icon" href="/icon.svg" type="image/svg+xml" />
+    <link rel="apple-touch-icon" href="/icon.svg" />
+    <link rel="stylesheet" href="/app.css" />
+    <title>Smagninger · Vin-dagbog</title>
+  </head>
+  <body>
+    <header class="topbar">
+      <h1>🥂 Smagninger</h1>
+      <a class="small" href="/">← Alle vine</a>
+    </header>
+
+    <div id="list"></div>
+
+    <details class="card" id="newCard">
+      <summary>+ Ny smagning</summary>
+      <form id="form">
+        <div id="formBox"></div>
+        <div id="msg"></div>
+        <button class="btn block" type="submit" style="margin-top: 14px">Opret smagning</button>
+      </form>
+    </details>
+
+    <script src="/app.js"></script>
+    <script src="/session.js"></script>
+    <script src="/eventform.js"></script>
+    <script>
+      const $ = (id) => document.getElementById(id);
+
+      async function load() {
+        const box = $("list");
+        box.innerHTML = "";
+        const rows = await apiGet("/api/events?" + Session.q());
+        if (!rows.length) {
+          box.appendChild(el("p", { class: "muted", text: "Ingen smagninger endnu — opret den første herunder." }));
+          $("newCard").open = true;
+        }
+        for (const e of rows) {
+          const count = e.planned_count ? e.wines + " / " + e.planned_count + " vine" : e.wines + " vine";
+          box.appendChild(el("a", { class: "list-item", href: "/event?id=" + e.id }, [
+            el("div", { style: "flex:1;min-width:0" }, [
+              el("div", { style: "font-weight:700", text: e.title }),
+              el("div", { class: "meta", text: "📅 " + eventWhen(e) + (e.place ? " · 📍 " + e.place : "") }),
+              el("div", { class: "meta", text: eventKindText(e) }),
+            ]),
+            el("div", { class: "small muted", style: "text-align:right", text: count }),
+          ]));
+        }
+      }
+
+      function init() {
+        const read = renderEventForm($("formBox"));
+        $("form").addEventListener("submit", async (ev) => {
+          ev.preventDefault();
+          try {
+            const { id } = await apiSend("/api/events", "POST", { cellarId: Session.cellarId, ...read() });
+            location.href = "/event?id=" + id;
+          } catch (err) {
+            $("msg").innerHTML = "";
+            $("msg").appendChild(el("div", { class: "banner err", text: err.message }));
+          }
+        });
+        load();
+      }
+      Session.onReady(init);
+    </script>
+  </body>
+</html>

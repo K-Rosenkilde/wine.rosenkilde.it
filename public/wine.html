@@ -136,7 +136,8 @@
           const extras = [["Duft", t.aroma], ["Smag", t.taste], ["Passer til", t.food]].filter(([, v]) => v);
           box.appendChild(el("div", { class: "entry" }, [
             el("div", { class: "head" }, [
-              el("span", {}, [who(t) + " · " + fmtDate(t.date) + (t.place ? " · " + t.place : "")]),
+              el("span", {}, [who(t) + " · " + fmtDate(t.date) + " · ",
+                t.event_id ? el("a", { href: "/event?id=" + t.event_id, text: "🥂 " + (t.event_title || "smagning") }) : t.place || ""]),
               el("span", {}, [t.rating !== null ? el("span", { class: "stars", text: stars(t.rating) }) : null, canDelete(t) ? delBtn("tastings", t.id) : null]),
             ]),
             t.notes ? el("div", { class: "body", text: t.notes }) : null,

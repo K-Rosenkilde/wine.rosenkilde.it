@@ -1,0 +1,415 @@
+<!doctype html>
+<html lang="da">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#1a0f14" />
+    <meta name="robots" content="noindex" />
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <link rel="icon" href="/icon.svg" type="image/svg+xml" />
+    <link rel="apple-touch-icon" href="/icon.svg" />
+    <link rel="stylesheet" href="/app.css" />
+    <title>Smagning · Vin-dagbog</title>
+  </head>
+  <body>
+    <header class="topbar">
+      <a class="small" href="/events">← Smagninger</a>
+      <button class="btn small secondary" type="button" id="editBtn">Redigér</button>
+    </header>
+
+    <h1 id="title"></h1>
+    <div id="info" class="muted small" style="margin-top: -8px"></div>
+    <div id="msg"></div>
+
+    <form class="card" id="editForm" style="display: none">
+      <div id="formBox"></div>
+      <div class="row" style="margin-top: 14px">
+        <button class="btn" type="submit">Gem ændringer</button>
+        <button class="btn secondary" type="button" id="cancelEdit">Annullér</button>
+      </div>
+      <button class="btn danger small" type="button" id="deleteBtn" style="margin-top: 14px">Slet smagning</button>
+    </form>
+
+    <div id="ranking"></div>
+    <div id="wines"></div>
+
+    <div class="card" id="addCard">
+      <h2 style="margin-top: 0" id="addTitle">➕ Tilføj vin</h2>
+      <input type="file" id="file" accept="image/*" capture="environment" hidden />
+      <input type="file" id="fileGallery" accept="image/*" hidden />
+      <div id="addStart">
+        <button class="btn block camera-btn" type="button" id="camBtn">📷<span>Tag billede af etiketten</span></button>
+        <div class="row" style="margin-top: 10px">
+          <button class="btn secondary small" type="button" id="galBtn">Vælg fra billeder</button>
+          <button class="btn secondary small" type="button" id="pickBtn">Vælg fra kælderen</button>
+          <button class="btn secondary small" type="button" id="skipBtn">Uden billede</button>
+        </div>
+      </div>
+      <div id="addStatus"></div>
+      <form id="addForm" style="display: none">
+        <img id="addPreview" class="photo-preview" alt="" hidden />
+        <div id="pickedWine"></div>
+        <div class="row" id="wineFields"></div>
+        <h3 class="sub-h">💰 Pris</h3>
+        <div class="row" id="priceFields"></div>
+        <h3 class="sub-h">⭐ Din vurdering</h3>
+        <div id="ratingBox"></div>
+        <label for="addNotes">Hvad synes du?</label>
+        <textarea id="addNotes" placeholder="Første indtryk…"></textarea>
+        <div class="row" style="margin-top: 14px">
+          <button class="btn" type="submit" id="addSave">Gem vin i smagningen</button>
+          <button class="btn secondary" type="button" id="addCancel">Annullér</button>
+        </div>
+      </form>
+    </div>
+
+    <div class="sheet" id="sheet" hidden>
+      <div class="sheet-inner">
+        <div class="row" style="align-items: center">
+          <strong style="flex: 1">Vælg vin fra kælderen</strong>
+          <button class="linkbtn" type="button" id="sheetClose" style="flex: 0 0 auto">Luk</button>
+        </div>
+        <input type="search" id="pickSearch" placeholder="Søg vin…" style="margin-top: 10px" />
+        <div class="pick-list" id="pickList"></div>
+      </div>
+    </div>
+
+    <script src="/app.js"></script>
+    <script src="/session.js"></script>
+    <script src="/wineform.js"></script>
+    <script src="/eventform.js"></script>
+    <script>
+      const $ = (id) => document.getElementById(id);
+      const eventId = Number(qs("id"));
+      let data, cellarWines = null;
+      let add = null; // { photoIds, wineId, rating, readPrices }
+
+      function flash(kind, text) {
+        $("msg").innerHTML = "";
+        if (text) $("msg").appendChild(el("div", { class: "banner " + kind, text }));
+      }
+      const wineLabel = (w) => [w.name, w.vintage].filter(Boolean).join(" ");
+      const who = (t) => (t.user_id === data.me ? "Dig" : t.user_name || t.user_email);
+
+      function priceText(w) {
+        const parts = [];
+        if (w.normal_price !== null) parts.push("Normalpris " + money(w.normal_price, w.currency));
+        if (w.offer_price !== null) {
+          let t = "Tilbud " + money(w.offer_price, w.currency);
+          if (w.normal_price) {
+            const pct = Math.round((1 - w.offer_price / w.normal_price) * 100);
+            if (pct > 0) t += " (spar " + pct + " %)";
+          }
+          parts.push(t);
+        }
+        return parts.join(" · ");
+      }
+
+      function priceInputs(box, w = {}) {
+        box.innerHTML = "";
+        const mk = (label, key, ph) => {
+          const n = el("input", { type: "number", inputmode: "decimal", step: "0.01", placeholder: ph, name: key });
+          n.value = w[key] ?? "";
+          box.appendChild(el("div", {}, [el("label", { text: label }), n]));
+        };
+        mk("Normalpris pr. flaske", "normal_price", "f.eks. 249");
+        mk("Tilbudspris her og nu", "offer_price", "f.eks. 199");
+        const cur = el("select", { name: "currency" }, ["DKK", "EUR", "SEK", "NOK", "USD", "GBP"].map((c) => el("option", { value: c, text: c })));
+        cur.value = w.currency || "DKK";
+        box.appendChild(el("div", { style: "flex:0 1 90px" }, [el("label", { text: "Valuta" }), cur]));
+        return () => ({
+          normal_price: box.querySelector("[name=normal_price]").value,
+          offer_price: box.querySelector("[name=offer_price]").value,
+          currency: cur.value,
+        });
+      }
+
+      // ---- header ---------------------------------------------------------
+
+      function renderHeader() {
+        const e = data.event;
+        document.title = e.title + " · Vin-dagbog";
+        $("title").textContent = "🥂 " + e.title;
+        const count = e.planned_count ? data.wines.length + " af " + e.planned_count + " vine" : data.wines.length + " vine";
+        $("info").innerHTML = "";
+        $("info").appendChild(el("div", { text: "📅 " + eventWhen(e) + (e.place ? " · 📍 " + e.place : "") }));
+        $("info").appendChild(el("div", { text: eventKindText(e) + " · " + count }));
+        if (e.note) $("info").appendChild(el("div", { style: "white-space:pre-wrap;margin-top:4px", text: e.note }));
+        $("deleteBtn").style.display = data.canManage ? "" : "none";
+        $("addTitle").textContent = "➕ Tilføj vin nr. " + (data.wines.length + 1);
+      }
+
+      function renderRanking() {
+        const box = $("ranking");
+        box.innerHTML = "";
+        const rated = data.wines.filter((w) => w.avg_rating !== null).sort((a, b) => b.avg_rating - a.avg_rating);
+        if (rated.length < 2) return;
+        const card = el("div", { class: "card" }, [el("h2", { style: "margin-top:0", text: "🏆 Aftenens rangering" })]);
+        rated.forEach((w, i) => {
+          card.appendChild(el("div", { class: "rank-row" }, [
+            el("span", { class: "rank-no", text: ["🥇", "🥈", "🥉"][i] || i + 1 + "." }),
+            el("span", { style: "flex:1", text: "#" + (data.wines.indexOf(w) + 1) + " " + wineLabel(w) }),
+            el("span", { class: "stars", text: stars(w.avg_rating) }),
+          ]));
+        });
+        box.appendChild(card);
+      }
+
+      // ---- wine cards -----------------------------------------------------
+
+      function wineCard(w, i) {
+        const thumb = w.cover_id
+          ? el("img", { class: "thumb", src: "/api/photos/" + w.cover_id + "?size=thumb", alt: "", onclick: () => lightbox("/api/photos/" + w.cover_id) })
+          : el("div", { class: "thumb", text: "🍷" });
+        const meta = [w.producer, [w.region, w.country].filter(Boolean).join(", ")].filter(Boolean).join(" · ");
+        const head = el("div", { class: "wine-item", style: "border:none;padding:0;margin:0;background:none" }, [
+          thumb,
+          el("div", { class: "info" }, [
+            el("div", { class: "title" }, [el("span", { class: "muted", text: "#" + (i + 1) + " " }),
+              w.color ? el("span", { class: "dot", style: "background:" + COLOR_DOTS[w.color] }) : null, wineLabel(w)]),
+            meta ? el("div", { class: "meta", text: meta }) : null,
+            w.grapes ? el("div", { class: "meta", text: w.grapes }) : null,
+          ]),
+          w.avg_rating !== null ? el("div", { class: "right" }, [el("div", { class: "stars", text: stars(w.avg_rating) }),
+            el("div", { class: "muted", text: "snit" })]) : null,
+        ]);
+
+        // prices, with inline edit
+        const priceBox = el("div", { class: "price-line" });
+        const drawPrices = () => {
+          priceBox.innerHTML = "";
+          priceBox.appendChild(el("span", { text: priceText(w) || "Ingen pris endnu" }));
+          priceBox.appendChild(el("button", { type: "button", class: "linkbtn", text: "ret", onclick: editPrices }));
+        };
+        const editPrices = () => {
+          priceBox.innerHTML = "";
+          const row = el("div", { class: "row" });
+          const read = priceInputs(row, w);
+          priceBox.appendChild(row);
+          priceBox.appendChild(el("button", { type: "button", class: "btn small", style: "margin-top:8px", text: "Gem pris", onclick: async () => {
+            await apiSend("/api/event-wines/" + w.id, "PUT", read());
+            load();
+          } }));
+        };
+        drawPrices();
+
+        // everybody else's notes
+        const others = w.tastings.filter((t) => t.user_id !== data.me);
+        const othersBox = others.length ? el("div", { class: "others" }, others.map((t) => el("div", { class: "small" }, [
+          el("strong", { text: who(t) }), t.rating !== null ? el("span", { class: "stars", text: " " + stars(t.rating) }) : null,
+          t.notes ? el("span", { text: " — " + t.notes }) : null,
+        ]))) : null;
+
+        // my note
+        const mine = w.tastings.find((t) => t.user_id === data.me) || {};
+        const rp = ratingPicker(mine.rating ?? null);
+        const notes = el("textarea", { placeholder: "Hvad synes du om vinen?" });
+        notes.value = mine.notes || "";
+        const extra = {};
+        const more = el("details", {}, [el("summary", { text: "Duft, smag og mad" })]);
+        const moreRow = el("div", { class: "row" });
+        for (const [k, label, ph] of [["aroma", "Duft", "kirsebær, roser…"], ["taste", "Smag", "tanniner, syre…"], ["food", "Passer til", "lam, ost…"]]) {
+          extra[k] = el("input", { type: "text", placeholder: ph });
+          extra[k].value = mine[k] || "";
+          moreRow.appendChild(el("div", {}, [el("label", { text: label }), extra[k]]));
+        }
+        more.appendChild(moreRow);
+        if (mine.aroma || mine.taste || mine.food) more.open = true;
+        const saved = el("span", { class: "small muted" });
+        const saveBtn = el("button", { type: "button", class: "btn small", text: "Gem min note", onclick: async () => {
+          saveBtn.disabled = true;
+          try {
+            await apiSend("/api/event-wines/" + w.id + "/tasting", "PUT", {
+              rating: rp.get(), notes: notes.value, aroma: extra.aroma.value, taste: extra.taste.value, food: extra.food.value,
+            });
+            saved.textContent = " ✓ Gemt";
+            await load();
+          } catch (e) { flash("err", e.message); saveBtn.disabled = false; }
+        } });
+
+        const actions = el("div", { class: "row", style: "margin-top:12px" }, [
+          el("button", { type: "button", class: "btn small secondary", text: "🛒 Jeg købte…", onclick: async () => {
+            const q = prompt("Hvor mange flasker købte du?", "1");
+            if (q === null) return;
+            await apiSend("/api/event-wines/" + w.id + "/purchase", "POST", { quantity: q });
+            flash("ok", "Køb af " + wineLabel(w) + " gemt" + (w.offer_price !== null ? " til tilbudsprisen." : "."));
+          } }),
+          el("a", { class: "btn small secondary", href: "/wine?id=" + w.wine_id, text: "Åbn vinen" }),
+          el("button", { type: "button", class: "btn small danger", text: "Fjern", onclick: async () => {
+            if (!confirm("Fjern " + wineLabel(w) + " fra smagningen? Vinen bliver i kælderen.")) return;
+            try { await apiSend("/api/event-wines/" + w.id, "DELETE"); load(); } catch (e) { flash("err", e.message); }
+          } }),
+        ]);
+
+        return el("div", { class: "card event-wine" }, [
+          head, priceBox, othersBox,
+          el("label", { text: "Din vurdering (1–5)" }), rp.node,
+          el("label", { text: "Dine noter" }), notes, more,
+          el("div", { style: "margin-top:10px" }, [saveBtn, saved]),
+          actions,
+        ]);
+      }
+
+      function renderWines() {
+        const box = $("wines");
+        box.innerHTML = "";
+        data.wines.forEach((w, i) => box.appendChild(wineCard(w, i)));
+      }
+
+      function lightbox(src) {
+        const lb = el("div", { class: "lightbox", onclick: () => lb.remove() }, [el("img", { src, alt: "" })]);
+        document.body.appendChild(lb);
+      }
+
+      // ---- add a wine -----------------------------------------------------
+
+      function addStatus(kind, content) {
+        $("addStatus").innerHTML = "";
+        if (content) $("addStatus").appendChild(el("div", { class: "banner " + kind }, content));
+      }
+
+      function openAddForm({ draft = null, wine = null, file = null } = {}) {
+        $("addStart").style.display = "none";
+        $("addForm").style.display = "";
+        $("addPreview").hidden = !file;
+        if (file) $("addPreview").src = URL.createObjectURL(file);
+        $("pickedWine").innerHTML = "";
+        if (wine) {
+          add.wineId = wine.id;
+          $("wineFields").innerHTML = "";
+          $("pickedWine").appendChild(el("div", { class: "banner info", text: "🍷 " + wineLabel(wine) + (wine.producer ? " · " + wine.producer : "") }));
+        } else {
+          const values = { ...(draft || {}) };
+          if (!values.producer && data.event.kind === "hus") values.producer = data.event.house;
+          renderWineFields($("wineFields"), values);
+        }
+        add.readPrices = priceInputs($("priceFields"));
+        add.rating = ratingPicker();
+        $("ratingBox").innerHTML = "";
+        $("ratingBox").appendChild(add.rating.node);
+        $("addNotes").value = "";
+        $("addCard").scrollIntoView({ behavior: "smooth" });
+      }
+
+      function resetAdd() {
+        add = { photoIds: [], wineId: null };
+        $("addStart").style.display = "";
+        $("addForm").style.display = "none";
+        $("file").value = "";
+        $("fileGallery").value = "";
+        addStatus();
+      }
+
+      async function onPhoto(file) {
+        if (!file) return;
+        add = { photoIds: [], wineId: null };
+        $("addStart").style.display = "none";
+        addStatus("info", [el("span", { class: "spinner" }), "  Gemmer billedet og læser etiketten…"]);
+        try {
+          const r = await apiUpload("/api/scan?cellar=" + data.event.cellar_id, await photoForm(file, "forside"));
+          add.photoIds.push(r.photoId);
+          if (r.draft) addStatus("ok", ["✓ Etiketten er aflæst — tjek felterne, og skriv priserne."]);
+          else addStatus("info", ["✓ Billedet er gemt. " + (r.aiError || "Udfyld felterne selv.")]);
+          openAddForm({ draft: r.draft, file });
+        } catch (e) {
+          addStatus("err", ["Kunne ikke gemme billedet: " + e.message]);
+          openAddForm({ file });
+        }
+      }
+
+      async function openPicker() {
+        if (!cellarWines) cellarWines = await apiGet("/api/wines?cellar=" + data.event.cellar_id);
+        const inEvent = new Set(data.wines.map((w) => w.wine_id));
+        const draw = () => {
+          const q = $("pickSearch").value.trim().toLowerCase();
+          const list = $("pickList");
+          list.innerHTML = "";
+          const rows = cellarWines.filter((w) => !inEvent.has(w.id) && (!q || [w.name, w.producer, w.vintage].join(" ").toLowerCase().includes(q)));
+          if (!rows.length) list.appendChild(el("div", { class: "muted small", text: "Ingen vine fundet." }));
+          for (const w of rows.slice(0, 50)) {
+            list.appendChild(el("button", { type: "button", class: "pick", onclick: () => {
+              $("sheet").hidden = true;
+              add = { photoIds: [], wineId: null };
+              openAddForm({ wine: w });
+            } }, [
+              w.color ? el("span", { class: "dot", style: "background:" + COLOR_DOTS[w.color] }) : null,
+              el("span", { text: wineLabel(w) }),
+              el("span", { class: "muted small", text: w.producer ? " · " + w.producer : "" }),
+            ]));
+          }
+        };
+        $("pickSearch").value = "";
+        $("pickSearch").oninput = draw;
+        draw();
+        $("sheet").hidden = false;
+      }
+
+      async function saveAdd(ev) {
+        ev.preventDefault();
+        const payload = { ...add.readPrices(), tasting: { rating: add.rating.get(), notes: $("addNotes").value } };
+        if (add.wineId) payload.wineId = add.wineId;
+        else Object.assign(payload, readWineFields($("wineFields")), { photoIds: add.photoIds });
+        $("addSave").disabled = true;
+        try {
+          await apiSend("/api/events/" + eventId + "/wines", "POST", payload);
+          cellarWines = null;
+          resetAdd();
+          await load();
+          const cards = document.querySelectorAll(".event-wine");
+          if (cards.length) cards[cards.length - 1].scrollIntoView({ behavior: "smooth" });
+        } catch (e) {
+          addStatus("err", [e.message]);
+        }
+        $("addSave").disabled = false;
+      }
+
+      // ---- load + init ----------------------------------------------------
+
+      async function load() {
+        try {
+          data = await apiGet("/api/events/" + eventId);
+        } catch (e) {
+          return flash("err", e.message);
+        }
+        renderHeader();
+        renderRanking();
+        renderWines();
+      }
+
+      function init() {
+        resetAdd();
+        $("camBtn").onclick = () => $("file").click();
+        $("galBtn").onclick = () => $("fileGallery").click();
+        $("file").onchange = (e) => onPhoto(e.target.files[0]);
+        $("fileGallery").onchange = (e) => onPhoto(e.target.files[0]);
+        $("skipBtn").onclick = () => { add = { photoIds: [], wineId: null }; openAddForm(); };
+        $("pickBtn").onclick = openPicker;
+        $("sheetClose").onclick = () => ($("sheet").hidden = true);
+        $("addCancel").onclick = resetAdd;
+        $("addForm").addEventListener("submit", saveAdd);
+
+        let readEvent;
+        $("editBtn").onclick = () => {
+          readEvent = renderEventForm($("formBox"), data.event);
+          $("editForm").style.display = "";
+        };
+        $("cancelEdit").onclick = () => ($("editForm").style.display = "none");
+        $("editForm").addEventListener("submit", async (e) => {
+          e.preventDefault();
+          try {
+            await apiSend("/api/events/" + eventId, "PUT", readEvent());
+            $("editForm").style.display = "none";
+            load();
+          } catch (err) { flash("err", err.message); }
+        });
+        $("deleteBtn").onclick = async () => {
+          if (!confirm("Slet smagningen? Vinene og dine noter bliver i kælderen.")) return;
+          await apiSend("/api/events/" + eventId, "DELETE");
+          location.href = "/events";
+        };
+        load();
+      }
+      Session.onReady(init, { requireCellar: false });
+    </script>
+  </body>
+</html>

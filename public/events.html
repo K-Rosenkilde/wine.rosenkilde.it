@@ -34,6 +34,13 @@
     <script>
       const $ = (id) => document.getElementById(id);
 
+      function flash(text) {
+        let m = $("evMsg");
+        if (!m) { m = el("div", { id: "evMsg" }); $("list").parentNode.insertBefore(m, $("list")); }
+        m.innerHTML = "";
+        m.appendChild(el("div", { class: "banner ok", text }));
+      }
+
       async function load() {
         const box = $("list");
         box.innerHTML = "";
@@ -61,12 +68,7 @@
               w.color ? el("span", { class: "dot", style: "background:" + COLOR_DOTS[w.color] }) : el("span", { class: "dot", style: "opacity:0" }),
               el("a", { href: "/wine?id=" + w.wine_id, class: "ew-name", text: label }),
               w.avg_rating !== null ? el("span", { class: "stars small", text: stars(w.avg_rating) }) : null,
-              w.in_list
-                ? el("span", { class: "small muted", text: w.bought ? "🛒 købt" : "✓ i vinlisten" })
-                : el("button", { type: "button", class: "btn small", text: "📥 Flyt", title: "Flyt til vinlisten", onclick: async () => {
-                    await apiSend("/api/wines/" + w.wine_id + "/list", "POST", { in_list: true });
-                    load();
-                  } }),
+              buyWantButtons({ ...w, id: w.id }, (msg) => { flash(msg); load(); }),
             ]));
           }
           box.appendChild(card);

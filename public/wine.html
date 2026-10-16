@@ -109,14 +109,22 @@
           $("factsCard").parentNode.insertBefore(box, $("factsCard"));
         }
         box.innerHTML = "";
-        if (data.wine.in_list !== 0) return;
-        box.appendChild(el("div", { class: "banner info" }, [
-          "🥂 Denne vin er kun med under dine smagninger og vises ikke i vinlisten. ",
-          el("button", { type: "button", class: "btn small", style: "margin-top:8px", text: "📥 Flyt til vinlisten", onclick: async () => {
-            await apiSend("/api/wines/" + wineId + "/list", "POST", { in_list: true });
-            load();
-          } }),
-        ]));
+        const st = data.wine.in_list;
+        const setState = (state) => async () => {
+          await apiSend("/api/wines/" + wineId + "/list", "POST", { state });
+          load();
+        };
+        if (st === 0) {
+          box.appendChild(el("div", { class: "banner info" }, [
+            "🥂 Denne vin er kun med under dine smagninger og står ikke i vinlisten. Tilføj et køb herunder, eller: ",
+            el("button", { type: "button", class: "btn small", style: "margin-top:8px", text: "⭐ Vil købe", onclick: setState("want") }),
+          ]));
+        } else if (st === 2) {
+          box.appendChild(el("div", { class: "banner info" }, [
+            "⭐ Vinen står i vinlisten som vil købe. Når du tilføjer et køb, bliver den markeret som købt. ",
+            el("button", { type: "button", class: "linkbtn", text: "Fjern fra vil-købe", onclick: setState("unwant") }),
+          ]));
+        }
       }
 
       function renderFacts() {

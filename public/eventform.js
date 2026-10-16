@@ -64,3 +64,28 @@ function renderEventForm(box, e = {}) {
     note: note.value.trim(),
   });
 }
+
+/**
+ * "🛒 Købt" / "⭐ Vil købe" for a wine at a tasting (instead of moving it by hand).
+ * w: { id (event wine), wine_id, in_list, bought, offer_price }; onDone(message) after a change.
+ */
+function buyWantButtons(w, onDone) {
+  const label = [w.name, w.vintage].filter(Boolean).join(" ");
+  const box = el("div", { class: "buy-want" });
+  if (w.bought) box.appendChild(el("span", { class: "small muted", text: "🛒 Købt " + w.bought + " fl." }));
+  box.appendChild(el("button", { type: "button", class: "btn small" + (w.bought ? " secondary" : ""), text: w.bought ? "🛒 Købt igen…" : "🛒 Købt…", onclick: async () => {
+    const q = prompt("Hvor mange flasker købte du af " + label + "?", "1");
+    if (q === null) return;
+    await apiSend("/api/event-wines/" + w.id + "/purchase", "POST", { quantity: q });
+    onDone("🛒 Køb af " + label + " gemt" + (w.offer_price !== null && w.offer_price !== undefined ? " til tilbudsprisen" : "") + " — vinen står nu i vinlisten som købt.");
+  } }));
+  if (!w.bought) {
+    const wanted = w.in_list === 2;
+    box.appendChild(el("button", { type: "button", class: "btn small " + (wanted ? "want-on" : "secondary"), text: wanted ? "⭐ Vil købe ✓" : "⭐ Vil købe",
+      title: wanted ? "Tryk for at fjerne fra vil-købe" : "Sæt på vil-købe-listen", onclick: async () => {
+        await apiSend("/api/wines/" + w.wine_id + "/list", "POST", { state: wanted ? "unwant" : "want" });
+        onDone(wanted ? label + " er fjernet fra vil-købe." : "⭐ " + label + " står nu i vinlisten som vil købe.");
+      } }));
+  }
+  return box;
+}

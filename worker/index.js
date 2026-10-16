@@ -356,13 +356,18 @@ app.get("/api/wines/:id", async (c) => {
   });
 });
 
-// Move a wine into the main wine list (or back to only its tastings).
+// Where a wine shows: { state: "want" } puts it in the wine list as "vil købe",
+// "list" plainly in the list, "tasting" back to only under its tastings, "unwant"
+// takes the "vil købe" mark off again.
 app.post("/api/wines/:id/list", async (c) => {
   const wa = await wineAccess(c, Number(c.req.param("id")));
   if (wa.error) return deny(c, wa.error);
-  const inList = (await body(c)).in_list !== false;
-  await d1.setInList(DB(c), wa.wine.id, inList);
-  return c.json({ ok: true, in_list: inList ? 1 : 0 });
+  const b = await body(c);
+  let v = b.state === "want" ? 2 : b.state === "tasting" || b.in_list === false ? 0 : 1;
+  // "unwant": back to only the tastings if that is all it was, else plainly in the list.
+  if (b.state === "unwant") v = (await d1.onlyAtTastings(DB(c), wa.wine.id)) ? 0 : 1;
+  await d1.setInList(DB(c), wa.wine.id, v);
+  return c.json({ ok: true, in_list: v });
 });
 
 app.put("/api/wines/:id", async (c) => {

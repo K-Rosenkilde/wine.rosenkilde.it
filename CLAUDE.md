@@ -9,8 +9,9 @@ subdomain apps (games., news., go. …). See README.md for setup and layout.
 - Multi-tenant: every API route must check cellar membership (`access` / `wineAccess` / `photoAccess`
   in worker/index.js). Photos are only served through the Worker, never from a public bucket URL.
 - Tastings and purchases are per user; only the author or the cellar owner may delete them.
-- Wines created at a tasting have `in_list = 0` (shown only under their tastings) until bought or moved;
-  `/api/wines` hides them unless `?all=1` (use that when matching/deduplicating).
+- `wines.in_list`: 0 = only under its tastings (wines created at a tasting start here), 1 = in the wine
+  list, 2 = in the list marked "vil købe". A purchase sets 1. `/api/wines` hides 0 unless `?all=1`
+  (use that when matching/deduplicating). Tastings offer "Købt" / "Vil købe", not a manual move.
 - Auth/cellar code mirrors GamesRegistration (users/sessions/leagues/memberships) — keep them alike.
 - Schema changes go in a new `migrations/000N_*.sql`; never edit applied migrations.
 - Label + wine-list reading: worker/label.js (`readLabel`, `readWineList` for photo/PDF lists), model

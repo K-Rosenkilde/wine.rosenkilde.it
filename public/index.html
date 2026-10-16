@@ -55,10 +55,10 @@
       // Quick filters: how the wine was met, then a dynamic "hvor fra" row built
       // from shop names, places and tastings (case-insensitive, most used first).
       const KIND_CHIPS = [["", "Alle"], ["kobt", KIND_NAMES.kobt], ["restaurant", KIND_NAMES.restaurant],
-        ["smagning", KIND_NAMES.smagning], ["hjemme", KIND_NAMES.hjemme], ["lager", "📍 På lager"]];
+        ["smagning", KIND_NAMES.smagning], ["hjemme", KIND_NAMES.hjemme], ["lager", "📍 På lager"], ["want", "⭐ Vil købe"]];
       let selKind = "", selSrc = "", showAllSrc = false;
       try { selKind = localStorage.getItem("wineKind") || ""; selSrc = localStorage.getItem("wineSrc") || ""; } catch {}
-      const matchKind = (w, k) => !k || (k === "lager" ? w.stored > 0 : w.kinds.includes(k));
+      const matchKind = (w, k) => !k || (k === "lager" ? w.stored > 0 : k === "want" ? w.in_list === 2 : w.kinds.includes(k));
 
       function chip(text, count, active, onclick) {
         return el("button", { type: "button", class: "chip" + (active ? " on" : ""), onclick },
@@ -151,6 +151,7 @@
             ]),
             el("div", { class: "right" }, [
               w.avg_rating !== null ? el("div", { class: "stars", text: stars(w.avg_rating) }) : el("div", { class: "muted", text: "ikke bedømt" }),
+              w.in_list === 2 ? el("div", { class: "badge want", text: "⭐ Vil købe" }) : null,
               w.stored ? el("div", { class: "badge", text: "📍 " + w.stored + " på lager" }) : null,
               w.bought ? el("div", { class: "badge", text: "Købt " + w.bought + (w.last_price !== null ? " · " + money(w.last_price, w.last_currency) : "") }) : null,
             ]),

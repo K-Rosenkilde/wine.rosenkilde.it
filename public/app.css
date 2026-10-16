@@ -217,3 +217,10 @@ details summary { cursor: pointer; color: var(--accent); font-weight: 600; margi
 .event-wine-row .ew-name { flex: 1; min-width: 0; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .event-wine-row .btn.small { min-height: 32px; padding: 4px 10px; }
 .in-list { align-self: center; }
+.buy-want { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.btn.want-on { background: rgba(217,164,65,.18); color: var(--accent); border: 1px solid var(--accent); }
+.badge.want { border-color: var(--accent); color: var(--accent); }
+.event-wine-row .buy-want .btn.small { min-height: 32px; padding: 4px 10px; }
+.event-wine-row { flex-wrap: wrap; }
+.event-wine-row .ew-name { flex: 1 1 55%; white-space: normal; }
+.event-wine-row .buy-want { margin-left: auto; }

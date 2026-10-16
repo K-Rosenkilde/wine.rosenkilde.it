@@ -170,11 +170,28 @@ export async function createWine(db, cellarId, userId, w, inList = 1) {
   return res.meta.last_row_id;
 }
 
-/** Show a wine in the main wine list (1) or only under its tastings (0). */
-export async function setInList(db, wineId, inList) {
-  await db.prepare("UPDATE wines SET in_list = ? WHERE id = ?").bind(inList ? 1 : 0, wineId).run().catch((e) => {
+/**
+ * Where a wine shows: 0 = only under its tastings, 1 = in the wine list,
+ * 2 = in the wine list marked "vil købe" (a purchase sets it back to 1).
+ */
+export async function setInList(db, wineId, state) {
+  const v = state === 2 ? 2 : state ? 1 : 0;
+  await db.prepare("UPDATE wines SET in_list = ? WHERE id = ?").bind(v, wineId).run().catch((e) => {
     if (!/in_list/.test(String(e && e.message))) throw e;
   });
+}
+/** True if a wine has only been met at tastings (never bought, stored or noted elsewhere). */
+export async function onlyAtTastings(db, wineId) {
+  const r = await db
+    .prepare(
+      `SELECT EXISTS (SELECT 1 FROM event_wines WHERE wine_id = ?1)
+          AND NOT EXISTS (SELECT 1 FROM purchases WHERE wine_id = ?1)
+          AND NOT EXISTS (SELECT 1 FROM placements WHERE wine_id = ?1)
+          AND NOT EXISTS (SELECT 1 FROM tastings WHERE wine_id = ?1 AND event_id IS NULL) AS only`
+    )
+    .bind(wineId)
+    .first();
+  return !!(r && r.only);
 }
 /** wine id -> in_list for a cellar (empty until migration 0007, meaning "all in the list"). */
 export async function inListMap(db, cellarId) {
@@ -466,6 +483,7 @@ export async function eventWines(db, eventId) {
     db
       .prepare(
         `SELECT ew.*,
+                (SELECT COALESCE(SUM(p.quantity), 0) FROM purchases p WHERE p.wine_id = ew.wine_id) AS bought,
                 w.name, w.producer, w.vintage, w.grapes, w.country, w.region, w.appellation, w.color, w.alcohol,
                 (SELECT ph.id FROM photos ph WHERE ph.wine_id = w.id ORDER BY ph.id LIMIT 1) AS cover_id
          FROM event_wines ew JOIN wines w ON w.id = ew.wine_id

@@ -246,20 +246,7 @@
         } });
 
         const actions = el("div", { class: "row", style: "margin-top:12px" }, [
-          el("button", { type: "button", class: "btn small secondary", text: "🛒 Jeg købte…", onclick: async () => {
-            const q = prompt("Hvor mange flasker købte du?", "1");
-            if (q === null) return;
-            await apiSend("/api/event-wines/" + w.id + "/purchase", "POST", { quantity: q });
-            flash("ok", "Køb af " + wineLabel(w) + " gemt" + (w.offer_price !== null ? " til tilbudsprisen" : "") + (w.in_list === 0 ? " — og vinen er flyttet til din vinliste." : "."));
-            load();
-          } }),
-          w.in_list === 0
-            ? el("button", { type: "button", class: "btn small", text: "📥 Flyt til vinlisten", onclick: async () => {
-                await apiSend("/api/wines/" + w.wine_id + "/list", "POST", { in_list: true });
-                flash("ok", wineLabel(w) + " er flyttet til din vinliste.");
-                load();
-              } })
-            : el("span", { class: "small muted in-list", text: "✓ I vinlisten" }),
+          buyWantButtons(w, (msg) => { flash("ok", msg); load(); }),
           el("a", { class: "btn small secondary", href: "/wine?id=" + w.wine_id, text: "Åbn vinen" }),
           el("button", { type: "button", class: "btn small danger", text: "Fjern", onclick: async () => {
             if (!confirm("Fjern " + wineLabel(w) + " fra smagningen? Vinen bliver i kælderen.")) return;

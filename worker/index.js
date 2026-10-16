@@ -306,7 +306,8 @@ app.get("/api/wines", async (c) => {
   const cellarId = Number(c.req.query("cellar"));
   const a = await access(c, cellarId);
   if (a.error) return deny(c, a.error);
-  const wines = await d1.listWines(DB(c), cellarId, a.user.id);
+  const all = c.req.query("all") === "1";
+  const wines = (await d1.listWines(DB(c), cellarId, a.user.id)).filter((w) => all || w.in_list !== 0);
   // Until migration 0004 is applied remotely the kind column is missing; the list
   // still works then, just without the quick filters.
   const sources = await d1.wineSources(DB(c), cellarId).catch((e) => {
@@ -355,6 +356,15 @@ app.get("/api/wines/:id", async (c) => {
   });
 });
 
+// Move a wine into the main wine list (or back to only its tastings).
+app.post("/api/wines/:id/list", async (c) => {
+  const wa = await wineAccess(c, Number(c.req.param("id")));
+  if (wa.error) return deny(c, wa.error);
+  const inList = (await body(c)).in_list !== false;
+  await d1.setInList(DB(c), wa.wine.id, inList);
+  return c.json({ ok: true, in_list: inList ? 1 : 0 });
+});
+
 app.put("/api/wines/:id", async (c) => {
   const wa = await wineAccess(c, Number(c.req.param("id")));
   if (wa.error) return deny(c, wa.error);
@@ -385,6 +395,7 @@ for (const [table, fields, clean] of [
     const wa = await wineAccess(c, Number(c.req.param("id")));
     if (wa.error) return deny(c, wa.error);
     const id = await d1.createEntry(DB(c), table, fields, wa.wine.id, wa.user.id, clean(await body(c)));
+    if (table === "purchases") await d1.setInList(DB(c), wa.wine.id, 1);
     return c.json({ id }, 201);
   });
 
@@ -646,7 +657,14 @@ app.get("/api/events", async (c) => {
   const cellarId = Number(c.req.query("cellar"));
   const a = await access(c, cellarId);
   if (a.error) return deny(c, a.error);
-  return c.json(await d1.listEvents(DB(c), cellarId));
+  const db = DB(c);
+  const [events, wines, inList] = await Promise.all([
+    d1.listEvents(db, cellarId), d1.cellarEventWines(db, cellarId), d1.inListMap(db, cellarId),
+  ]);
+  return c.json(events.map((e) => ({
+    ...e,
+    wine_list: wines.filter((w) => w.event_id === e.id).map((w) => ({ ...w, in_list: inList.get(w.wine_id) ?? 1 })),
+  })));
 });
 
 app.post("/api/events", async (c) => {
@@ -665,12 +683,14 @@ app.get("/api/events/:id", async (c) => {
   if (ea.error) return deny(c, ea.error);
   const db = DB(c);
   const tastings = await d1.eventTastings(db, ea.event.id);
+  const inList = await d1.inListMap(db, ea.event.cellar_id);
   const wines = (await d1.eventWines(db, ea.event.id)).map((w) => {
     const ts = tastings.filter((t) => t.wine_id === w.wine_id);
     const rated = ts.filter((t) => t.rating !== null);
     return {
       ...w,
       tastings: ts,
+      in_list: inList.get(w.wine_id) ?? 1,
       avg_rating: rated.length ? Math.round((rated.reduce((x, t) => x + t.rating, 0) / rated.length) * 10) / 10 : null,
     };
   });
@@ -721,7 +741,7 @@ app.post("/api/events/:id/wines", async (c) => {
     const w = cleanWine(b);
     if (!w.name && !w.producer) return c.json({ error: "Skriv i det mindste navn eller producent" }, 400);
     if (!w.name) w.name = w.producer;
-    wineId = await d1.createWine(db, ea.event.cellar_id, ea.user.id, w);
+    wineId = await d1.createWine(db, ea.event.cellar_id, ea.user.id, w, 0); // only under the tasting until bought
     await d1.attachPhotos(db, ea.event.cellar_id, wineId, b.photoIds);
   }
   if (!(await d1.addEventWine(db, ea.event.id, wineId, ea.user.id, cleanPrices(b)))) {
@@ -775,6 +795,7 @@ app.post("/api/event-wines/:id/purchase", async (c) => {
     note: "Købt til " + wa.event.title,
   });
   const id = await d1.createEntry(DB(c), "purchases", d1.PURCHASE_FIELDS, wa.ew.wine_id, wa.user.id, p);
+  await d1.setInList(DB(c), wa.ew.wine_id, 1);
   return c.json({ id }, 201);
 });
 

@@ -9,6 +9,8 @@ subdomain apps (games., news., go. …). See README.md for setup and layout.
 - Multi-tenant: every API route must check cellar membership (`access` / `wineAccess` / `photoAccess`
   in worker/index.js). Photos are only served through the Worker, never from a public bucket URL.
 - Tastings and purchases are per user; only the author or the cellar owner may delete them.
+- Wines created at a tasting have `in_list = 0` (shown only under their tastings) until bought or moved;
+  `/api/wines` hides them unless `?all=1` (use that when matching/deduplicating).
 - Auth/cellar code mirrors GamesRegistration (users/sessions/leagues/memberships) — keep them alike.
 - Schema changes go in a new `migrations/000N_*.sql`; never edit applied migrations.
 - Label + wine-list reading: worker/label.js (`readLabel`, `readWineList` for photo/PDF lists), model
@@ -23,7 +25,8 @@ subdomain apps (games., news., go. …). See README.md for setup and layout.
 ## Open tasks
 - Setup done (D1 `wine`, R2 `wine-photos`, secret ANTHROPIC_API_KEY). Remote migrations applied: 0001–0004.
 - Migrations 0005_event_files.sql (wine list on a tasting) and 0006_event_wine_shop.sql (shop per
-  tasting wine) must be applied remotely, if not done yet.
+  tasting wine) and 0007_wine_in_list.sql (tasting wines kept out of the wine list) must be applied
+  remotely, if not done yet.
 - `npm run migrate` on Klaus's PC often fails with Cloudflare error 7403 (expired wrangler login):
   fix with `npx wrangler logout` + `npx wrangler login`, or paste the SQL into the D1 console plus
   `INSERT INTO d1_migrations (name) VALUES ('000N_name.sql');`.

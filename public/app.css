@@ -207,3 +207,13 @@ details summary { cursor: pointer; color: var(--accent); font-weight: 600; margi
 .review-check { display: flex; align-items: center; gap: 8px; margin: 0; color: var(--muted); font-size: 0.8rem; }
 .review-check input { width: 22px; height: 22px; }
 .review-shop { margin: 8px 0 4px; }
+
+/* tastings list with their wines */
+.event-card { padding: 12px 14px; }
+.event-head { display: flex; gap: 10px; align-items: center; color: var(--text); }
+.event-head .meta { font-size: 0.8rem; color: var(--muted); }
+.event-wine-row { display: flex; align-items: center; gap: 8px; padding: 7px 0; border-top: 1px solid var(--line); font-size: 0.9rem; }
+.event-wine-row:first-of-type { margin-top: 8px; }
+.event-wine-row .ew-name { flex: 1; min-width: 0; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.event-wine-row .btn.small { min-height: 32px; padding: 4px 10px; }
+.in-list { align-self: center; }

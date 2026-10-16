@@ -151,15 +151,50 @@ export async function getWine(db, id) {
   return db.prepare("SELECT * FROM wines WHERE id = ?").bind(id).first();
 }
 
-export async function createWine(db, cellarId, userId, w) {
-  const res = await db
-    .prepare(
-      `INSERT INTO wines (cellar_id, created_by, ${WINE_FIELDS.join(", ")})
-       VALUES (?, ?, ${WINE_FIELDS.map(() => "?").join(", ")})`
-    )
-    .bind(cellarId, userId, ...WINE_FIELDS.map((f) => w[f]))
-    .run();
+export async function createWine(db, cellarId, userId, w, inList = 1) {
+  const run = (withList) =>
+    db
+      .prepare(
+        `INSERT INTO wines (cellar_id, created_by, ${WINE_FIELDS.join(", ")}${withList ? ", in_list" : ""})
+         VALUES (?, ?, ${WINE_FIELDS.map(() => "?").join(", ")}${withList ? ", ?" : ""})`
+      )
+      .bind(cellarId, userId, ...WINE_FIELDS.map((f) => w[f]), ...(withList ? [inList ? 1 : 0] : []))
+      .run();
+  let res;
+  try {
+    res = await run(true);
+  } catch (e) {
+    if (!/in_list/.test(String(e && e.message))) throw e;
+    res = await run(false); // migration 0007 not applied yet
+  }
   return res.meta.last_row_id;
+}
+
+/** Show a wine in the main wine list (1) or only under its tastings (0). */
+export async function setInList(db, wineId, inList) {
+  await db.prepare("UPDATE wines SET in_list = ? WHERE id = ?").bind(inList ? 1 : 0, wineId).run().catch((e) => {
+    if (!/in_list/.test(String(e && e.message))) throw e;
+  });
+}
+/** wine id -> in_list for a cellar (empty until migration 0007, meaning "all in the list"). */
+export async function inListMap(db, cellarId) {
+  const rows = await all(db.prepare("SELECT id, in_list FROM wines WHERE cellar_id = ?").bind(cellarId)).catch(() => []);
+  return new Map(rows.map((r) => [r.id, r.in_list]));
+}
+
+/** Every tasting's wines for a cellar (for the list of tastings). */
+export async function cellarEventWines(db, cellarId) {
+  return all(
+    db
+      .prepare(
+        `SELECT ew.id, ew.event_id, ew.wine_id, ew.position, w.name, w.producer, w.vintage, w.color,
+                (SELECT ROUND(AVG(t.rating), 1) FROM tastings t WHERE t.event_id = ew.event_id AND t.wine_id = ew.wine_id AND t.rating IS NOT NULL) AS avg_rating,
+                (SELECT COALESCE(SUM(p.quantity), 0) FROM purchases p WHERE p.wine_id = w.id) AS bought
+         FROM event_wines ew JOIN events e ON e.id = ew.event_id JOIN wines w ON w.id = ew.wine_id
+         WHERE e.cellar_id = ? ORDER BY ew.event_id, ew.position, ew.id`
+      )
+      .bind(cellarId)
+  );
 }
 
 export async function updateWine(db, id, w) {

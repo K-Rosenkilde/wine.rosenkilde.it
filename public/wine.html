@@ -101,6 +101,24 @@
         }
       }
 
+      // A wine met only at tastings is kept out of the main wine list until bought or moved.
+      function renderListBanner() {
+        let box = $("listBanner");
+        if (!box) {
+          box = el("div", { id: "listBanner" });
+          $("factsCard").parentNode.insertBefore(box, $("factsCard"));
+        }
+        box.innerHTML = "";
+        if (data.wine.in_list !== 0) return;
+        box.appendChild(el("div", { class: "banner info" }, [
+          "🥂 Denne vin er kun med under dine smagninger og vises ikke i vinlisten. ",
+          el("button", { type: "button", class: "btn small", style: "margin-top:8px", text: "📥 Flyt til vinlisten", onclick: async () => {
+            await apiSend("/api/wines/" + wineId + "/list", "POST", { in_list: true });
+            load();
+          } }),
+        ]));
+      }
+
       function renderFacts() {
         const w = data.wine;
         document.title = w.name + " · Vin-dagbog";
@@ -187,6 +205,7 @@
         }
         renderGallery();
         renderFacts();
+        renderListBanner();
         renderTastings();
         renderPurchases();
         renderPlacements();

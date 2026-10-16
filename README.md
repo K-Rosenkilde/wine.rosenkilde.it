@@ -19,6 +19,8 @@ and — if you bought it — the purchase (date, shop/webshop + link, price, qua
   offer price on the day — or upload the tasting's wine list (photo or PDF): it is kept with the
   tasting and read into rows you check and tick before they are added in one go. Every member rates and notes each wine (saved as their tasting, linked to the
   event); the page ranks the wines by average rating, and "Jeg købte…" records a purchase at the offer.
+  Wines added at a tasting stay out of the main wine list and are listed under the tasting, until
+  you buy one (moved automatically) or tap "📥 Flyt til vinlisten".
 - **List** — quick filters for how a wine was met (🛒 Købt, 🍽️ Restaurant, 🥂 Smagning, 🏠 Hjemme, 📍 På
   lager) and a dynamic "Hvor fra" row built from shop names, tasting places and tastings; search,
   filter (type, country), sort (newest, rating, last tasted,

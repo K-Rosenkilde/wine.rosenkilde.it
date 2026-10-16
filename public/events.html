@@ -44,14 +44,32 @@
         }
         for (const e of rows) {
           const count = e.planned_count ? e.wines + " / " + e.planned_count + " vine" : e.wines + " vine";
-          box.appendChild(el("a", { class: "list-item", href: "/event?id=" + e.id }, [
-            el("div", { style: "flex:1;min-width:0" }, [
-              el("div", { style: "font-weight:700", text: e.title }),
-              el("div", { class: "meta", text: "📅 " + eventWhen(e) + (e.place ? " · 📍 " + e.place : "") }),
-              el("div", { class: "meta", text: eventKindText(e) }),
+          const card = el("div", { class: "card event-card" }, [
+            el("a", { class: "event-head", href: "/event?id=" + e.id }, [
+              el("div", { style: "flex:1;min-width:0" }, [
+                el("div", { style: "font-weight:700", text: e.title }),
+                el("div", { class: "meta", text: "📅 " + eventWhen(e) + (e.place ? " · 📍 " + e.place : "") }),
+                el("div", { class: "meta", text: eventKindText(e) }),
+              ]),
+              el("div", { class: "small muted", style: "text-align:right", text: count + " ›" }),
             ]),
-            el("div", { class: "small muted", style: "text-align:right", text: count }),
-          ]));
+          ]);
+          // The tasting's wines; ones met only here can be moved into the wine list.
+          for (const w of e.wine_list || []) {
+            const label = [w.name, w.vintage].filter(Boolean).join(" ");
+            card.appendChild(el("div", { class: "event-wine-row" }, [
+              w.color ? el("span", { class: "dot", style: "background:" + COLOR_DOTS[w.color] }) : el("span", { class: "dot", style: "opacity:0" }),
+              el("a", { href: "/wine?id=" + w.wine_id, class: "ew-name", text: label }),
+              w.avg_rating !== null ? el("span", { class: "stars small", text: stars(w.avg_rating) }) : null,
+              w.in_list
+                ? el("span", { class: "small muted", text: w.bought ? "🛒 købt" : "✓ i vinlisten" })
+                : el("button", { type: "button", class: "btn small", text: "📥 Flyt", title: "Flyt til vinlisten", onclick: async () => {
+                    await apiSend("/api/wines/" + w.wine_id + "/list", "POST", { in_list: true });
+                    load();
+                  } }),
+            ]));
+          }
+          box.appendChild(card);
         }
       }
 

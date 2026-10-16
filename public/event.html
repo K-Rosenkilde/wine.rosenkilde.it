@@ -250,8 +250,16 @@
             const q = prompt("Hvor mange flasker købte du?", "1");
             if (q === null) return;
             await apiSend("/api/event-wines/" + w.id + "/purchase", "POST", { quantity: q });
-            flash("ok", "Køb af " + wineLabel(w) + " gemt" + (w.offer_price !== null ? " til tilbudsprisen." : "."));
+            flash("ok", "Køb af " + wineLabel(w) + " gemt" + (w.offer_price !== null ? " til tilbudsprisen" : "") + (w.in_list === 0 ? " — og vinen er flyttet til din vinliste." : "."));
+            load();
           } }),
+          w.in_list === 0
+            ? el("button", { type: "button", class: "btn small", text: "📥 Flyt til vinlisten", onclick: async () => {
+                await apiSend("/api/wines/" + w.wine_id + "/list", "POST", { in_list: true });
+                flash("ok", wineLabel(w) + " er flyttet til din vinliste.");
+                load();
+              } })
+            : el("span", { class: "small muted in-list", text: "✓ I vinlisten" }),
           el("a", { class: "btn small secondary", href: "/wine?id=" + w.wine_id, text: "Åbn vinen" }),
           el("button", { type: "button", class: "btn small danger", text: "Fjern", onclick: async () => {
             if (!confirm("Fjern " + wineLabel(w) + " fra smagningen? Vinen bliver i kælderen.")) return;
@@ -336,7 +344,7 @@
       }
 
       async function openPicker() {
-        if (!cellarWines) cellarWines = await apiGet("/api/wines?cellar=" + data.event.cellar_id);
+        if (!cellarWines) cellarWines = await apiGet("/api/wines?all=1&cellar=" + data.event.cellar_id);
         const inEvent = new Set(data.wines.map((w) => w.wine_id));
         const draw = () => {
           const q = $("pickSearch").value.trim().toLowerCase();
@@ -546,7 +554,7 @@
         if (shop && !data.event.place) {
           try { await apiSend("/api/events/" + eventId, "PUT", { ...data.event, place: shop }); } catch {}
         }
-        if (!cellarWines) cellarWines = await apiGet("/api/wines?cellar=" + data.event.cellar_id);
+        if (!cellarWines) cellarWines = await apiGet("/api/wines?all=1&cellar=" + data.event.cellar_id);
         let added = 0, failed = [];
         for (const r of rows) {
           btn.textContent = "Tilføjer " + (added + failed.length + 1) + " af " + rows.length + " …";

@@ -98,7 +98,7 @@ const LIST_ITEM = {
   required: ["name", "producer", "vintage", "grapes", "country", "region", "appellation", "color", "normal_price", "offer_price"],
   properties: {
     name: { type: "string", description: "The wine's name / cuvée (without producer and vintage)." },
-    producer: { type: "string", description: "Producer / house / domaine, if shown (or the house of the whole list)." },
+    producer: { type: "string", description: "The wine's producer (domaine, château, winery, Champagne house) — never the shop, importer or organiser of the tasting." },
     vintage: { type: ["integer", "null"], description: "Vintage year, null if not shown." },
     grapes: { type: "array", items: { type: "string" }, description: "Grape varieties if shown." },
     country: { type: "string", description: "Country in Danish, e.g. Frankrig." },
@@ -112,8 +112,9 @@ const LIST_ITEM = {
 const LIST_SCHEMA = {
   type: "object",
   additionalProperties: false,
-  required: ["currency", "wines"],
+  required: ["shop", "currency", "wines"],
   properties: {
+    shop: { type: "string", description: "The shop, importer or organiser behind the list/tasting (logo, header, footer), \"\" if not shown." },
     currency: { type: "string", description: "Currency code of the prices, e.g. DKK." },
     wines: { type: "array", items: LIST_ITEM, description: "Every wine on the list, in the order listed." },
   },
@@ -121,7 +122,9 @@ const LIST_SCHEMA = {
 
 const LIST_PROMPT = `Dette er vinlisten fra en vinsmagning (foto eller PDF).
 Aflæs alle vine i den rækkefølge de står, med navn, producent/hus, årgang, druer, land, område og farve
-hvis det fremgår. Har listen to priser, er den højeste normalprisen og den laveste tilbuds-/smagningsprisen;
+(rød, hvid, rosé, mousserende, dessert, orange) hvis det fremgår eller er åbenlyst ud fra vinen.
+Butikken/importøren/arrangøren bag listen (logo, overskrift, sidefod) skrives i "shop" — aldrig som
+producent. Producent er vinens egen producent (domaine, château, vingård); er den ikke angivet, så "". Har listen to priser, er den højeste normalprisen og den laveste tilbuds-/smagningsprisen;
 er der kun én pris, så brug den som normalpris medmindre den tydeligt er en tilbudspris.
 Priser er pr. flaske som tal uden valuta. Skriv kun det der står; efterlad ellers "" eller null.
 Land og farve skrives på dansk.`;
@@ -132,7 +135,7 @@ Land og farve skrives på dansk.`;
  * @param {string} mediaType   "image/jpeg" | "application/pdf"
  */
 export async function readWineList(apiKey, bytes, mediaType) {
-  if (!apiKey) return { rows: null, error: "AI-aflæsning er ikke sat op (mangler ANTHROPIC_API_KEY)." };
+  if (!apiKey) return { rows: null, shop: "", error: "AI-aflæsning er ikke sat op (mangler ANTHROPIC_API_KEY)." };
   const source = { type: "base64", media_type: mediaType, data: toBase64(bytes) };
   const block = mediaType === "application/pdf" ? { type: "document", source } : { type: "image", source };
   const client = new Anthropic({ apiKey });
@@ -151,9 +154,13 @@ export async function readWineList(apiKey, bytes, mediaType) {
     if (!text) return { rows: null, error: "Vinlisten kunne ikke aflæses." };
     const d = JSON.parse(text.text);
     const currency = String(d.currency || "DKK").toUpperCase().slice(0, 3) || "DKK";
+    const shop = String(d.shop || "").trim();
+    const same = (a, b) => a && b && a.trim().toLowerCase() === b.trim().toLowerCase();
     return {
+      shop,
       rows: (d.wines || []).map((w) => ({
         ...w,
+        producer: same(w.producer, shop) ? "" : w.producer, // the shop is not the producer
         grapes: Array.isArray(w.grapes) ? w.grapes.join(", ") : String(w.grapes || ""),
         currency,
       })),

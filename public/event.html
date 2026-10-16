@@ -174,7 +174,7 @@
         const thumb = w.cover_id
           ? el("img", { class: "thumb", src: "/api/photos/" + w.cover_id + "?size=thumb", alt: "", onclick: () => lightbox("/api/photos/" + w.cover_id) })
           : el("div", { class: "thumb", text: "🍷" });
-        const meta = [w.producer, [w.region, w.country].filter(Boolean).join(", ")].filter(Boolean).join(" · ");
+        const meta = [w.producer, TYPE_NAMES[w.color] && w.color ? TYPE_NAMES[w.color] : "", [w.region, w.country].filter(Boolean).join(", ")].filter(Boolean).join(" · ");
         const head = el("div", { class: "wine-item", style: "border:none;padding:0;margin:0;background:none" }, [
           thumb,
           el("div", { class: "info" }, [
@@ -408,10 +408,12 @@
       }
 
       let reviewRows = [];
+      let reviewShop = ""; // shop / importer / organiser read from the list
       async function uploadLists(files) {
         files = [...files];
         if (!files.length) return;
         reviewRows = [];
+        reviewShop = "";
         $("listReview").innerHTML = "";
         let errorText = "";
         for (let i = 0; i < files.length; i++) {
@@ -426,6 +428,7 @@
           try {
             const r = await apiUpload("/api/events/" + eventId + "/files", fd);
             if (r.rows) reviewRows.push(...r.rows);
+            if (r.shop && !reviewShop) reviewShop = r.shop;
             else errorText = r.aiError || "Vinlisten kunne ikke aflæses.";
           } catch (e) {
             errorText = e.message;
@@ -443,6 +446,7 @@
         try {
           const r = await apiSend("/api/event-files/" + f.id + "/read", "POST");
           reviewRows = r.rows || [];
+          reviewShop = r.shop || "";
           showReview(r.rows ? "" : r.aiError);
         } catch (e) {
           listStatus("err", [e.message]);
@@ -453,6 +457,14 @@
       const sameWine = (a, b) => norm(a.name) === norm(b.name) && (a.vintage ?? null) === (b.vintage ?? null) &&
         (!norm(a.producer) || !norm(b.producer) || norm(a.producer) === norm(b.producer));
 
+      const TYPE_NAMES = { "": "—", "rød": "Rødvin", hvid: "Hvidvin", "rosé": "Rosé", mousserende: "Mousserende", dessert: "Dessertvin", orange: "Orangevin" };
+      function typeSelect(r) {
+        const sel = el("select", {}, Object.entries(TYPE_NAMES).map(([v, t]) => el("option", { value: v, text: t })));
+        sel.value = TYPE_NAMES[r.color] ? r.color || "" : "";
+        sel.onchange = () => (r.color = sel.value);
+        return sel;
+      }
+
       function showReview(errorText) {
         const box = $("listReview");
         box.innerHTML = "";
@@ -461,8 +473,16 @@
           return;
         }
         listStatus("ok", ["✓ Listen er gemt og " + reviewRows.length + " vine er læst. Ret det der er forkert, og vælg hvilke der skal med." + (errorText ? " (" + errorText + ")" : "")]);
+        const shopIn = el("input", { type: "text", placeholder: "f.eks. Vinbutikken i Århus" });
+        shopIn.value = reviewShop || data.event.place || "";
+        box.appendChild(el("div", { class: "review-shop" }, [
+          el("label", { text: "🏪 Butik / arrangør (gemmes som smagningens sted, hvis det er tomt)" }), shopIn,
+        ]));
+        const shopName = norm(shopIn.value);
+        const house = data.event.kind === "hus" ? data.event.house : "";
         const items = reviewRows.map((r) => {
-          if (!r.producer && data.event.kind === "hus") r.producer = data.event.house;
+          if (shopName && norm(r.producer) === shopName) r.producer = ""; // the shop is not the producer
+          if (!r.producer && house && norm(house) !== shopName) r.producer = house;
           const already = data.wines.some((w) => sameWine(w, r));
           const cb = el("input", { type: "checkbox" });
           cb.checked = !already;
@@ -480,6 +500,7 @@
               el("div", { style: "flex:1 1 70px" }, [el("label", { text: "Årgang" }), input("vintage", "", "number")]),
               el("div", { style: "flex:1 1 90px" }, [el("label", { text: "Normalpris" }), input("normal_price", "", "number")]),
               el("div", { style: "flex:1 1 90px" }, [el("label", { text: "Tilbud" }), input("offer_price", "", "number")]),
+              el("div", { style: "flex:1 1 110px" }, [el("label", { text: "Type" }), typeSelect(r)]),
             ]),
             [r.grapes, r.region, r.country].some(Boolean) ? el("div", { class: "small muted", text: [r.grapes, r.region, r.country].filter(Boolean).join(" · ") }) : null,
           ]);
@@ -498,13 +519,16 @@
           update();
         } });
         box.insertBefore(all, box.firstChild);
-        addBtn.onclick = () => addFromList(items.filter((x) => x.cb.checked).map((x) => x.r), addBtn);
+        addBtn.onclick = () => addFromList(items.filter((x) => x.cb.checked).map((x) => x.r), addBtn, shopIn.value.trim());
         box.appendChild(addBtn);
         update();
       }
 
-      async function addFromList(rows, btn) {
+      async function addFromList(rows, btn, shop) {
         btn.disabled = true;
+        if (shop && !data.event.place) {
+          try { await apiSend("/api/events/" + eventId, "PUT", { ...data.event, place: shop }); } catch {}
+        }
         if (!cellarWines) cellarWines = await apiGet("/api/wines?cellar=" + data.event.cellar_id);
         let added = 0, failed = [];
         for (const r of rows) {

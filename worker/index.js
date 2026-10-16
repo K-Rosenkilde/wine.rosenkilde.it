@@ -718,7 +718,6 @@ app.post("/api/events/:id/wines", async (c) => {
     wineId = wine.id;
   } else {
     const w = cleanWine(b);
-    if (!w.producer && ea.event.kind === "hus") w.producer = ea.event.house;
     if (!w.name && !w.producer) return c.json({ error: "Skriv i det mindste navn eller producent" }, 400);
     if (!w.name) w.name = w.producer;
     wineId = await d1.createWine(db, ea.event.cellar_id, ea.user.id, w);
@@ -805,8 +804,8 @@ app.post("/api/events/:id/files", async (c) => {
 });
 
 async function readList(c, bytes, type) {
-  const { rows, error } = await readWineList(c.env.ANTHROPIC_API_KEY, bytes, type);
-  return { rows, aiError: error };
+  const { rows, shop, error } = await readWineList(c.env.ANTHROPIC_API_KEY, bytes, type);
+  return { rows, shop: shop || "", aiError: error };
 }
 
 async function eventFileAccess(c, id) {

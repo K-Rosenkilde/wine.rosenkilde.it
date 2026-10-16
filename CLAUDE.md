@@ -23,10 +23,7 @@ subdomain apps (games., news., go. …). See README.md for setup and layout.
   `npm run migrate` locally (or pastes the SQL into the D1 console in the dashboard).
 
 ## Open tasks
-- Setup done (D1 `wine`, R2 `wine-photos`, secret ANTHROPIC_API_KEY). Remote migrations applied: 0001–0004.
-- Migrations 0005_event_files.sql (wine list on a tasting) and 0006_event_wine_shop.sql (shop per
-  tasting wine) and 0007_wine_in_list.sql (tasting wines kept out of the wine list) must be applied
-  remotely, if not done yet.
+- Setup done (D1 `wine`, R2 `wine-photos`, secret ANTHROPIC_API_KEY). Remote migrations applied: 0001–0007.
 - `npm run migrate` on Klaus's PC often fails with Cloudflare error 7403 (expired wrangler login):
   fix with `npx wrangler logout` + `npx wrangler login`, or paste the SQL into the D1 console plus
   `INSERT INTO d1_migrations (name) VALUES ('000N_name.sql');`.

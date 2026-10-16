@@ -21,16 +21,13 @@
       </div>
     </header>
 
+    <div class="chips" id="kindChips"></div>
+    <div class="chips src" id="srcChips"></div>
+
     <div class="toolbar">
       <input type="search" id="q" placeholder="Søg navn, producent, drue, område…" />
       <select id="fColor"><option value="">Alle typer</option></select>
       <select id="fCountry"><option value="">Alle lande</option></select>
-      <select id="fBought">
-        <option value="">Smagt + købt</option>
-        <option value="1">Kun købte</option>
-        <option value="0">Ikke købt</option>
-        <option value="s">På lager</option>
-      </select>
       <select id="sort">
         <option value="new">Nyeste først</option>
         <option value="rating">Bedst bedømt</option>
@@ -55,15 +52,65 @@
         for (const v of values) select.appendChild(el("option", { value: v, text: COLOR_LABELS[v] || v }));
       }
 
+      // Quick filters: how the wine was met, then a dynamic "hvor fra" row built
+      // from shop names, places and tastings (case-insensitive, most used first).
+      const KIND_CHIPS = [["", "Alle"], ["kobt", KIND_NAMES.kobt], ["restaurant", KIND_NAMES.restaurant],
+        ["smagning", KIND_NAMES.smagning], ["hjemme", KIND_NAMES.hjemme], ["lager", "📍 På lager"]];
+      let selKind = "", selSrc = "", showAllSrc = false;
+      try { selKind = localStorage.getItem("wineKind") || ""; selSrc = localStorage.getItem("wineSrc") || ""; } catch {}
+      const matchKind = (w, k) => !k || (k === "lager" ? w.stored > 0 : w.kinds.includes(k));
+
+      function chip(text, count, active, onclick) {
+        return el("button", { type: "button", class: "chip" + (active ? " on" : ""), onclick },
+          [text, count !== null ? el("span", { class: "n", text: String(count) }) : null]);
+      }
+      function remember() {
+        try { localStorage.setItem("wineKind", selKind); localStorage.setItem("wineSrc", selSrc); } catch {}
+      }
+      function renderChips() {
+        const kb = $("kindChips");
+        kb.innerHTML = "";
+        for (const [k, label] of KIND_CHIPS) {
+          const n = k ? wines.filter((w) => matchKind(w, k)).length : wines.length;
+          if (k && !n && selKind !== k) continue;
+          kb.appendChild(chip(label, n, selKind === k, () => { selKind = selKind === k ? "" : k; selSrc = ""; remember(); render(); }));
+        }
+        const counts = new Map();
+        for (const w of wines.filter((x) => matchKind(x, selKind))) {
+          for (const src of new Set(w.sources.map((x) => x.toLowerCase()))) {
+            const name = w.sources.find((x) => x.toLowerCase() === src);
+            const c = counts.get(src) || { name, n: 0 };
+            if (/^\p{Lu}/u.test(name) && !/^\p{Lu}/u.test(c.name)) c.name = name; // prefer "Vinbutikken" over "vinbutikken"
+            c.n++;
+            counts.set(src, c);
+          }
+        }
+        if (selSrc && !counts.has(selSrc)) selSrc = "";
+        const sb = $("srcChips");
+        sb.innerHTML = "";
+        const list = [...counts.entries()].sort((a, b) => b[1].n - a[1].n || a[1].name.localeCompare(b[1].name, "da"));
+        if (!list.length) return;
+        sb.appendChild(el("span", { class: "chips-label", text: "Hvor fra:" }));
+        const shown = showAllSrc ? list : list.slice(0, 8);
+        if (selSrc && !shown.some(([k]) => k === selSrc)) shown.push(list.find(([k]) => k === selSrc));
+        for (const [key, c] of shown) {
+          sb.appendChild(chip(c.name, c.n, selSrc === key, () => { selSrc = selSrc === key ? "" : key; remember(); render(); }));
+        }
+        if (list.length > 8) {
+          sb.appendChild(el("button", { type: "button", class: "chip more", text: showAllSrc ? "Færre" : "+" + (list.length - 8) + " flere",
+            onclick: () => { showAllSrc = !showAllSrc; renderChips(); } }));
+        }
+      }
+
       function render() {
+        renderChips();
         const q = $("q").value.trim().toLowerCase();
-        const color = $("fColor").value, country = $("fCountry").value, bought = $("fBought").value;
+        const color = $("fColor").value, country = $("fCountry").value;
         let rows = wines.filter((w) => {
           if (color && w.color !== color) return false;
           if (country && w.country !== country) return false;
-          if (bought === "1" && !w.bought) return false;
-          if (bought === "0" && w.bought) return false;
-          if (bought === "s" && !w.stored) return false;
+          if (!matchKind(w, selKind)) return false;
+          if (selSrc && !w.sources.some((x) => x.toLowerCase() === selSrc)) return false;
           if (q) {
             const hay = [w.name, w.producer, w.grapes, w.region, w.country, w.appellation, w.vintage].join(" ").toLowerCase();
             if (!q.split(/\s+/).every((t) => hay.includes(t))) return false;
@@ -116,7 +163,7 @@
         wines = await apiGet("/api/wines?" + Session.q());
         fill($("fColor"), [...new Set(wines.map((w) => w.color).filter(Boolean))]);
         fill($("fCountry"), [...new Set(wines.map((w) => w.country).filter(Boolean))].sort((a, b) => a.localeCompare(b, "da")));
-        for (const id of ["q", "fColor", "fCountry", "fBought", "sort"]) $(id).addEventListener("input", render);
+        for (const id of ["q", "fColor", "fCountry", "sort"]) $(id).addEventListener("input", render);
         render();
       }
 

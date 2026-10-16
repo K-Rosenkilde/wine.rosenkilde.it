@@ -147,3 +147,6 @@ function slotLabel(layers, shelf, slot) {
   if (!r || (!r.layerName && !r.rowName)) return "Hylde " + shelf + ", plads " + slot;
   return ["Hylde " + shelf, r.layerName.toLowerCase(), r.rowName, "nr. " + (slot - r.start + 1)].filter(Boolean).join(", ");
 }
+
+// How a wine was met: tasting kinds plus "kobt" (bought) — used in filters and labels.
+const KIND_NAMES = { kobt: "🛒 Købt", restaurant: "🍽️ Restaurant", smagning: "🥂 Smagning", hjemme: "🏠 Hjemme", andet: "Andet" };

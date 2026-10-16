@@ -182,3 +182,17 @@ details summary { cursor: pointer; color: var(--accent); font-weight: 600; margi
 .row-name { font-size: 0.72rem; color: var(--muted); width: 48px; flex: 0 0 auto; }
 .shelf-edit { border-top: 1px solid var(--line); padding: 10px 0 4px; margin-top: 8px; }
 .layout-editor select { margin-bottom: 2px; }
+
+/* wine list quick filters */
+.chips { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 8px; align-items: center; }
+.chips:empty { display: none; }
+.chip {
+  background: var(--panel); border: 1px solid var(--line); color: var(--text); border-radius: 999px;
+  padding: 7px 12px; font-size: 0.85rem; cursor: pointer; display: inline-flex; align-items: center; gap: 6px;
+}
+.chip .n { font-size: 0.72rem; color: var(--muted); }
+.chip.on { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); font-weight: 700; }
+.chip.on .n { color: var(--accent-ink); }
+.chips.src .chip { padding: 5px 10px; font-size: 0.8rem; }
+.chip.more { color: var(--accent); border-style: dashed; }
+.chips-label { font-size: 0.75rem; color: var(--muted); }

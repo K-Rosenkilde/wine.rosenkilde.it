@@ -18,7 +18,9 @@ and — if you bought it — the purchase (date, shop/webshop + link, price, qua
   wine by photo (label read like everywhere else) or from the cellar, with the normal price and the
   offer price on the day. Every member rates and notes each wine (saved as their tasting, linked to the
   event); the page ranks the wines by average rating, and "Jeg købte…" records a purchase at the offer.
-- **List** — search, filter (type, country, bought / not bought), sort (newest, rating, last tasted,
+- **List** — quick filters for how a wine was met (🛒 Købt, 🍽️ Restaurant, 🥂 Smagning, 🏠 Hjemme, 📍 På
+  lager) and a dynamic "Hvor fra" row built from shop names, tasting places and tastings; search,
+  filter (type, country), sort (newest, rating, last tasted,
   vintage, name). **Eksportér CSV** downloads the whole cellar (semicolon-separated, opens in Excel).
 
 ## Stack

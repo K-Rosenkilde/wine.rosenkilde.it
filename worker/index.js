@@ -281,8 +281,10 @@ function cleanTasting(b) {
     taste: str(b.taste, 1000),
     food: str(b.food, 1000),
     place: str(b.place, 200),
+    kind: TASTING_KINDS.includes(b.kind) ? b.kind : "",
   };
 }
+const TASTING_KINDS = ["hjemme", "restaurant", "smagning", "andet"];
 function cleanPurchase(b) {
   const q = Math.trunc(num(b.quantity) ?? 1);
   return {
@@ -302,7 +304,17 @@ app.get("/api/wines", async (c) => {
   const cellarId = Number(c.req.query("cellar"));
   const a = await access(c, cellarId);
   if (a.error) return deny(c, a.error);
-  return c.json(await d1.listWines(DB(c), cellarId, a.user.id));
+  const wines = await d1.listWines(DB(c), cellarId, a.user.id);
+  // Until migration 0004 is applied remotely the kind column is missing; the list
+  // still works then, just without the quick filters.
+  const sources = await d1.wineSources(DB(c), cellarId).catch((e) => {
+    console.error("wineSources failed (migration 0004 applied?)", e);
+    return new Map();
+  });
+  return c.json(wines.map((w) => {
+    const src = sources.get(w.id);
+    return { ...w, kinds: src ? [...src.kinds] : [], sources: src ? [...src.sources] : [] };
+  }));
 });
 
 // Create a wine, attach scanned photos and optionally a first tasting / purchase.
@@ -732,7 +744,7 @@ app.delete("/api/event-wines/:id", async (c) => {
 
 /** A note taken at the event is dated and placed at the event. */
 function eventTasting(event, t) {
-  return { ...cleanTasting(t), date: event.date, place: event.place || event.title };
+  return { ...cleanTasting(t), date: event.date, place: event.place || event.title, kind: "smagning" };
 }
 
 // My note + rating for a wine at this tasting (one per person, editable).

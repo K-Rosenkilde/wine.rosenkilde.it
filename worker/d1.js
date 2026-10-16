@@ -211,7 +211,7 @@ export async function deletePhoto(db, id) {
 
 // ---- tastings & purchases -------------------------------------------------
 
-export const TASTING_FIELDS = ["date", "rating", "notes", "aroma", "taste", "food", "place"];
+export const TASTING_FIELDS = ["date", "rating", "notes", "aroma", "taste", "food", "place", "kind"];
 export const PURCHASE_FIELDS = ["date", "shop", "url", "price", "currency", "quantity", "note"];
 
 export async function tastingsForWine(db, wineId) {
@@ -499,4 +499,44 @@ export async function upsertEventTasting(db, eventId, wineId, userId, t) {
     .bind(wineId, userId, eventId, ...TASTING_FIELDS.map((f) => t[f]))
     .run();
   return res.meta.last_row_id;
+}
+
+/**
+ * Per wine in a cellar: how it was met (bought / tasting kinds / poured at an
+ * event) and the "hvor fra" names (shops, places, tastings) — for the list filters.
+ */
+export async function wineSources(db, cellarId) {
+  const [tastings, purchases, poured] = await Promise.all([
+    all(db.prepare(
+      `SELECT t.wine_id, t.kind, t.place, e.title AS event_title
+       FROM tastings t JOIN wines w ON w.id = t.wine_id LEFT JOIN events e ON e.id = t.event_id
+       WHERE w.cellar_id = ?`).bind(cellarId)),
+    all(db.prepare(
+      `SELECT p.wine_id, p.shop FROM purchases p JOIN wines w ON w.id = p.wine_id WHERE w.cellar_id = ?`).bind(cellarId)),
+    all(db.prepare(
+      `SELECT ew.wine_id, e.title FROM event_wines ew JOIN events e ON e.id = ew.event_id WHERE e.cellar_id = ?`).bind(cellarId)),
+  ]);
+  const out = new Map();
+  const get = (id) => {
+    if (!out.has(id)) out.set(id, { kinds: new Set(), sources: new Set() });
+    return out.get(id);
+  };
+  const name = (v) => String(v || "").trim();
+  for (const t of tastings) {
+    const o = get(t.wine_id);
+    if (t.kind) o.kinds.add(t.kind);
+    const n = name(t.event_title) || name(t.place);
+    if (n) o.sources.add(n);
+  }
+  for (const p of purchases) {
+    const o = get(p.wine_id);
+    o.kinds.add("kobt");
+    if (name(p.shop)) o.sources.add(name(p.shop));
+  }
+  for (const e of poured) {
+    const o = get(e.wine_id);
+    o.kinds.add("smagning");
+    if (name(e.title)) o.sources.add(name(e.title));
+  }
+  return out;
 }

@@ -66,7 +66,8 @@ function ratingPicker(initial = null) {
 
 const TASTING_INPUTS = [
   { key: "date", label: "Dato", type: "date", half: true },
-  { key: "place", label: "Hvor / anledning", ph: "f.eks. Middag hos Anne", half: true },
+  { key: "kind", label: "Hvor smagt", half: true, select: [["", "—"], ...Object.entries(KIND_NAMES).filter(([k]) => k !== "kobt")] },
+  { key: "place", label: "Hvor fra (restaurant, sted …)", ph: "f.eks. Restaurant Frederikshøj" },
   { key: "notes", label: "Hvad synes du?", textarea: true, ph: "Samlet indtryk…" },
   { key: "aroma", label: "Duft", ph: "kirsebær, roser, tjære…", half: true },
   { key: "taste", label: "Smag", ph: "tanniner, syre, længde…", half: true },

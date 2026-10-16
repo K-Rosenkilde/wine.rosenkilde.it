@@ -625,6 +625,7 @@ function cleanPrices(b) {
     normal_price: price(b.normal_price),
     offer_price: price(b.offer_price),
     currency: str(b.currency, 3).toUpperCase() || "DKK",
+    shop: str(b.shop, 200),
   };
 }
 
@@ -767,7 +768,7 @@ app.post("/api/event-wines/:id/purchase", async (c) => {
   const b = await body(c);
   const p = cleanPurchase({
     date: wa.event.date,
-    shop: wa.event.kind === "hus" && wa.event.house ? wa.event.house : wa.event.place || wa.event.title,
+    shop: wa.ew.shop || (wa.event.kind === "hus" && wa.event.house ? wa.event.house : wa.event.place || wa.event.title),
     price: wa.ew.offer_price ?? wa.ew.normal_price,
     currency: wa.ew.currency,
     quantity: b.quantity,

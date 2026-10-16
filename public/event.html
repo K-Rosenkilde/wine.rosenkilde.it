@@ -106,6 +106,7 @@
 
       function priceText(w) {
         const parts = [];
+        if (w.shop) parts.push("🏪 " + w.shop);
         if (w.normal_price !== null) parts.push("Normalpris " + money(w.normal_price, w.currency));
         if (w.offer_price !== null) {
           let t = "Tilbud " + money(w.offer_price, w.currency);
@@ -125,6 +126,9 @@
           n.value = w[key] ?? "";
           box.appendChild(el("div", {}, [el("label", { text: label }), n]));
         };
+        const shop = el("input", { type: "text", name: "shop", placeholder: "f.eks. Vinbutikken" });
+        shop.value = w.shop ?? (data.event.place || "");
+        box.appendChild(el("div", { style: "flex-basis:100%" }, [el("label", { text: "Butik" }), shop]));
         mk("Normalpris pr. flaske", "normal_price", "f.eks. 249");
         mk("Tilbudspris her og nu", "offer_price", "f.eks. 199");
         const cur = el("select", { name: "currency" }, ["DKK", "EUR", "SEK", "NOK", "USD", "GBP"].map((c) => el("option", { value: c, text: c })));
@@ -134,6 +138,7 @@
           normal_price: box.querySelector("[name=normal_price]").value,
           offer_price: box.querySelector("[name=offer_price]").value,
           currency: cur.value,
+          shop: shop.value.trim(),
         });
       }
 
@@ -479,9 +484,11 @@
           el("label", { text: "🏪 Butik / arrangør (gemmes som smagningens sted, hvis det er tomt)" }), shopIn,
         ]));
         const shopName = norm(shopIn.value);
+        const rowShops = [];
         const house = data.event.kind === "hus" ? data.event.house : "";
         const items = reviewRows.map((r) => {
           if (shopName && norm(r.producer) === shopName) r.producer = ""; // the shop is not the producer
+          if (!r.shop) r.shop = shopIn.value.trim();
           if (!r.producer && house && norm(house) !== shopName) r.producer = house;
           const already = data.wines.some((w) => sameWine(w, r));
           const cb = el("input", { type: "checkbox" });
@@ -501,11 +508,21 @@
               el("div", { style: "flex:1 1 90px" }, [el("label", { text: "Normalpris" }), input("normal_price", "", "number")]),
               el("div", { style: "flex:1 1 90px" }, [el("label", { text: "Tilbud" }), input("offer_price", "", "number")]),
               el("div", { style: "flex:1 1 110px" }, [el("label", { text: "Type" }), typeSelect(r)]),
+              el("div", { style: "flex:2 1 160px" }, [el("label", { text: "Butik" }), (() => { const n = input("shop", "Butik"); rowShops.push({ r, n }); return n; })()]),
             ]),
             [r.grapes, r.region, r.country].some(Boolean) ? el("div", { class: "small muted", text: [r.grapes, r.region, r.country].filter(Boolean).join(" · ") }) : null,
           ]);
           return { r, cb, node };
         });
+        // Changing the shop at the top changes every wine that still has the old one.
+        let lastShop = shopIn.value.trim();
+        shopIn.oninput = () => {
+          const v = shopIn.value.trim();
+          for (const { r, n } of rowShops) {
+            if (n.value.trim() === lastShop) { n.value = v; r.shop = v; }
+          }
+          lastShop = v;
+        };
         const addBtn = el("button", { type: "button", class: "btn block", style: "margin-top:12px" });
         const update = () => {
           const n = items.filter((x) => x.cb.checked).length;
@@ -535,7 +552,7 @@
           btn.textContent = "Tilføjer " + (added + failed.length + 1) + " af " + rows.length + " …";
           const vintage = r.vintage === "" || r.vintage === null ? null : Number(r.vintage);
           const existing = cellarWines.find((w) => sameWine(w, { ...r, vintage }));
-          const prices = { normal_price: r.normal_price, offer_price: r.offer_price, currency: r.currency || "DKK" };
+          const prices = { normal_price: r.normal_price, offer_price: r.offer_price, currency: r.currency || "DKK", shop: r.shop || "" };
           const payload = existing ? { wineId: existing.id, ...prices } : {
             name: r.name, producer: r.producer, vintage: r.vintage, grapes: r.grapes, country: r.country,
             region: r.region, appellation: r.appellation, color: r.color, ...prices,

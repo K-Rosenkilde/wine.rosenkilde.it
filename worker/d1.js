@@ -430,7 +430,7 @@ export async function eventWines(db, eventId) {
   return all(
     db
       .prepare(
-        `SELECT ew.id, ew.wine_id, ew.position, ew.normal_price, ew.offer_price, ew.currency, ew.created_by,
+        `SELECT ew.*,
                 w.name, w.producer, w.vintage, w.grapes, w.country, w.region, w.appellation, w.color, w.alcohol,
                 (SELECT ph.id FROM photos ph WHERE ph.wine_id = w.id ORDER BY ph.id LIMIT 1) AS cover_id
          FROM event_wines ew JOIN wines w ON w.id = ew.wine_id
@@ -452,23 +452,36 @@ export async function eventTastings(db, eventId) {
 }
 export async function addEventWine(db, eventId, wineId, userId, p) {
   const pos = await db.prepare("SELECT COALESCE(MAX(position), 0) + 1 AS n FROM event_wines WHERE event_id = ?").bind(eventId).first();
-  const res = await db
-    .prepare(
-      `INSERT INTO event_wines (event_id, wine_id, position, normal_price, offer_price, currency, created_by)
-       VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT(event_id, wine_id) DO NOTHING`
-    )
-    .bind(eventId, wineId, pos.n, p.normal_price, p.offer_price, p.currency, userId)
-    .run();
+  const run = (withShop) =>
+    db
+      .prepare(
+        `INSERT INTO event_wines (event_id, wine_id, position, normal_price, offer_price, currency, created_by${withShop ? ", shop" : ""})
+         VALUES (?, ?, ?, ?, ?, ?, ?${withShop ? ", ?" : ""}) ON CONFLICT(event_id, wine_id) DO NOTHING`
+      )
+      .bind(eventId, wineId, pos.n, p.normal_price, p.offer_price, p.currency, userId, ...(withShop ? [p.shop] : []))
+      .run();
+  const res = await withShopFallback(run);
   return res.meta.changes > 0;
+}
+/** Runs with the shop column, or without it until migration 0006 is applied. */
+async function withShopFallback(run) {
+  try {
+    return await run(true);
+  } catch (e) {
+    if (!/shop/.test(String(e && e.message))) throw e;
+    return run(false);
+  }
 }
 export async function getEventWine(db, id) {
   return db.prepare("SELECT * FROM event_wines WHERE id = ?").bind(id).first();
 }
 export async function updateEventWinePrices(db, id, p) {
-  await db
-    .prepare("UPDATE event_wines SET normal_price = ?, offer_price = ?, currency = ? WHERE id = ?")
-    .bind(p.normal_price, p.offer_price, p.currency, id)
-    .run();
+  await withShopFallback((withShop) =>
+    db
+      .prepare(`UPDATE event_wines SET normal_price = ?, offer_price = ?, currency = ?${withShop ? ", shop = ?" : ""} WHERE id = ?`)
+      .bind(p.normal_price, p.offer_price, p.currency, ...(withShop ? [p.shop] : []), id)
+      .run()
+  );
 }
 export async function deleteEventWine(db, ew) {
   // The wine stays in the cellar; only its place in this tasting goes. Notes made

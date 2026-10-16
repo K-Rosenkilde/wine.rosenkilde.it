@@ -11,8 +11,8 @@ subdomain apps (games., news., go. …). See README.md for setup and layout.
 - Tastings and purchases are per user; only the author or the cellar owner may delete them.
 - Auth/cellar code mirrors GamesRegistration (users/sessions/leagues/memberships) — keep them alike.
 - Schema changes go in a new `migrations/000N_*.sql`; never edit applied migrations.
-- Label reading: worker/label.js, model `claude-opus-5-5`, structured JSON output (no forced tool use),
-  `fallbacks: "default"`. Secret `ANTHROPIC_API_KEY`.
+- Label + wine-list reading: worker/label.js (`readLabel`, `readWineList` for photo/PDF lists), model
+  `claude-opus-5-5`, structured JSON output (no forced tool use), `fallbacks: "default"`. Secret `ANTHROPIC_API_KEY`.
 
 ## Deployment
 - Cloudflare Worker `wine`, git-connected (Workers Builds): every push to `main` deploys
@@ -22,6 +22,7 @@ subdomain apps (games., news., go. …). See README.md for setup and layout.
 
 ## Open tasks
 - Setup done (D1 `wine`, R2 `wine-photos`, secret ANTHROPIC_API_KEY). Remote migrations applied: 0001–0004.
+- Migration 0005_event_files.sql (wine list on a tasting) must be applied remotely.
 - `npm run migrate` on Klaus's PC often fails with Cloudflare error 7403 (expired wrangler login):
   fix with `npx wrangler logout` + `npx wrangler login`, or paste the SQL into the D1 console plus
   `INSERT INTO d1_migrations (name) VALUES ('000N_name.sql');`.

@@ -16,7 +16,8 @@ and — if you bought it — the purchase (date, shop/webshop + link, price, qua
   bottle there, move it or take it out; each wine page shows where its bottles are.
 - **Smagninger** — a tasting event: place, date/time, number of wines, one house or several. Add each
   wine by photo (label read like everywhere else) or from the cellar, with the normal price and the
-  offer price on the day. Every member rates and notes each wine (saved as their tasting, linked to the
+  offer price on the day — or upload the tasting's wine list (photo or PDF): it is kept with the
+  tasting and read into rows you check and tick before they are added in one go. Every member rates and notes each wine (saved as their tasting, linked to the
   event); the page ranks the wines by average rating, and "Jeg købte…" records a purchase at the offer.
 - **List** — quick filters for how a wine was met (🛒 Købt, 🍽️ Restaurant, 🥂 Smagning, 🏠 Hjemme, 📍 På
   lager) and a dynamic "Hvor fra" row built from shop names, tasting places and tastings; search,

@@ -540,3 +540,35 @@ export async function wineSources(db, cellarId) {
   }
   return out;
 }
+
+// ---- tasting files (wine lists) ---------------------------------------------
+
+export async function eventFiles(db, eventId) {
+  return all(
+    db.prepare("SELECT id, content_type, name, created_by, created_at FROM event_files WHERE event_id = ? ORDER BY id").bind(eventId)
+  );
+}
+export async function createEventFile(db, { eventId, key, contentType, name, userId }) {
+  const res = await db
+    .prepare("INSERT INTO event_files (event_id, r2_key, content_type, name, created_by) VALUES (?, ?, ?, ?, ?)")
+    .bind(eventId, key, contentType, name, userId)
+    .run();
+  return res.meta.last_row_id;
+}
+export async function getEventFile(db, id) {
+  return db.prepare("SELECT * FROM event_files WHERE id = ?").bind(id).first();
+}
+export async function deleteEventFile(db, id) {
+  await db.prepare("DELETE FROM event_files WHERE id = ?").bind(id).run();
+}
+/** R2 keys of an event's files (or a whole cellar's), for cleanup on delete. */
+export async function eventFileKeys(db, eventId) {
+  return (await all(db.prepare("SELECT r2_key FROM event_files WHERE event_id = ?").bind(eventId))).map((r) => r.r2_key);
+}
+export async function cellarEventFileKeys(db, cellarId) {
+  return (
+    await all(
+      db.prepare("SELECT f.r2_key FROM event_files f JOIN events e ON e.id = f.event_id WHERE e.cellar_id = ?").bind(cellarId)
+    ).catch(() => [])
+  ).map((r) => r.r2_key);
+}

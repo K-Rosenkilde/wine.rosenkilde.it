@@ -30,6 +30,19 @@
       <button class="btn danger small" type="button" id="deleteBtn" style="margin-top: 14px">Slet smagning</button>
     </form>
 
+    <div class="card" id="listCard">
+      <h2 style="margin-top: 0">📄 Vinliste</h2>
+      <div id="files"></div>
+      <input type="file" id="listCam" accept="image/*" capture="environment" hidden />
+      <input type="file" id="listFile" accept="image/*,application/pdf,.pdf" multiple hidden />
+      <div class="row" style="margin-top: 10px">
+        <button class="btn small secondary" type="button" id="listCamBtn">📷 Tag billede af vinlisten</button>
+        <button class="btn small secondary" type="button" id="listFileBtn">📎 Upload billede / PDF</button>
+      </div>
+      <div id="listStatus"></div>
+      <div id="listReview"></div>
+    </div>
+
     <div id="ranking"></div>
     <div id="wines"></div>
 
@@ -363,6 +376,159 @@
         $("addSave").disabled = false;
       }
 
+      // ---- wine list: upload, keep, read into wines -------------------------
+
+      function listStatus(kind, content) {
+        $("listStatus").innerHTML = "";
+        if (content) $("listStatus").appendChild(el("div", { class: "banner " + kind }, content));
+      }
+
+      function renderFiles() {
+        const box = $("files");
+        box.innerHTML = "";
+        if (!data.files || !data.files.length) {
+          box.appendChild(el("div", { class: "muted small", text: "Upload smagningens vinliste — så gemmes den her, og vinene kan læses ind på én gang." }));
+          return;
+        }
+        for (const f of data.files) {
+          const url = "/api/event-files/" + f.id;
+          const isPdf = f.content_type === "application/pdf";
+          box.appendChild(el("div", { class: "file-row" }, [
+            isPdf ? el("a", { class: "file-icon", href: url, target: "_blank", rel: "noopener", text: "📄" })
+                  : el("a", { href: url, target: "_blank", rel: "noopener" }, [el("img", { class: "file-thumb", src: url, alt: "" })]),
+            el("a", { href: url, target: "_blank", rel: "noopener", style: "flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis",
+              text: f.name || (isPdf ? "Vinliste.pdf" : "Vinliste") }),
+            el("button", { type: "button", class: "linkbtn", text: "Læs vinene ind", onclick: () => readFile(f) }),
+            el("button", { type: "button", class: "linkbtn danger", text: "slet", onclick: async () => {
+              if (!confirm("Slet denne vinliste?")) return;
+              try { await apiSend("/api/event-files/" + f.id, "DELETE"); load(); } catch (e) { listStatus("err", [e.message]); }
+            } }),
+          ]));
+        }
+      }
+
+      let reviewRows = [];
+      async function uploadLists(files) {
+        files = [...files];
+        if (!files.length) return;
+        reviewRows = [];
+        $("listReview").innerHTML = "";
+        let errorText = "";
+        for (let i = 0; i < files.length; i++) {
+          const file = files[i];
+          const isPdf = file.type === "application/pdf" || /\.pdf$/i.test(file.name);
+          listStatus("info", [el("span", { class: "spinner" }), "  Gemmer og læser vinlisten" + (files.length > 1 ? " (" + (i + 1) + " af " + files.length + ")" : "") + " … det kan tage et halvt minut."]);
+          const fd = new FormData();
+          if (isPdf) fd.append("file", file, file.name);
+          else fd.append("file", await resizeImage(file, 2400, 0.85), (file.name || "vinliste").replace(/\.\w+$/, "") + ".jpg");
+          fd.append("name", file.name || "");
+          fd.append("read", "1");
+          try {
+            const r = await apiUpload("/api/events/" + eventId + "/files", fd);
+            if (r.rows) reviewRows.push(...r.rows);
+            else errorText = r.aiError || "Vinlisten kunne ikke aflæses.";
+          } catch (e) {
+            errorText = e.message;
+          }
+        }
+        $("listCam").value = "";
+        $("listFile").value = "";
+        await load();
+        showReview(errorText);
+      }
+
+      async function readFile(f) {
+        listStatus("info", [el("span", { class: "spinner" }), "  Læser vinlisten … det kan tage et halvt minut."]);
+        $("listReview").innerHTML = "";
+        try {
+          const r = await apiSend("/api/event-files/" + f.id + "/read", "POST");
+          reviewRows = r.rows || [];
+          showReview(r.rows ? "" : r.aiError);
+        } catch (e) {
+          listStatus("err", [e.message]);
+        }
+      }
+
+      const norm = (v) => String(v ?? "").trim().toLowerCase();
+      const sameWine = (a, b) => norm(a.name) === norm(b.name) && (a.vintage ?? null) === (b.vintage ?? null) &&
+        (!norm(a.producer) || !norm(b.producer) || norm(a.producer) === norm(b.producer));
+
+      function showReview(errorText) {
+        const box = $("listReview");
+        box.innerHTML = "";
+        if (!reviewRows.length) {
+          listStatus(errorText ? "err" : "info", [errorText ? "Listen er gemt, men vinene kunne ikke læses: " + errorText : "Listen er gemt. Der blev ikke fundet nogen vine på den."]);
+          return;
+        }
+        listStatus("ok", ["✓ Listen er gemt og " + reviewRows.length + " vine er læst. Ret det der er forkert, og vælg hvilke der skal med." + (errorText ? " (" + errorText + ")" : "")]);
+        const items = reviewRows.map((r) => {
+          if (!r.producer && data.event.kind === "hus") r.producer = data.event.house;
+          const already = data.wines.some((w) => sameWine(w, r));
+          const cb = el("input", { type: "checkbox" });
+          cb.checked = !already;
+          const input = (key, ph, type = "text") => {
+            const n = el("input", { type, placeholder: ph, inputmode: type === "number" ? "decimal" : null, step: type === "number" ? "0.01" : null });
+            n.value = r[key] ?? "";
+            n.oninput = () => (r[key] = n.value);
+            return n;
+          };
+          const node = el("div", { class: "review-row" + (already ? " done" : "") }, [
+            el("label", { class: "review-check" }, [cb, el("span", { text: already ? "allerede med" : "" })]),
+            el("div", { class: "row" }, [
+              el("div", { style: "flex:2 1 160px" }, [el("label", { text: "Vin" }), input("name", "Navn")]),
+              el("div", { style: "flex:2 1 140px" }, [el("label", { text: "Producent / hus" }), input("producer", "Producent")]),
+              el("div", { style: "flex:1 1 70px" }, [el("label", { text: "Årgang" }), input("vintage", "", "number")]),
+              el("div", { style: "flex:1 1 90px" }, [el("label", { text: "Normalpris" }), input("normal_price", "", "number")]),
+              el("div", { style: "flex:1 1 90px" }, [el("label", { text: "Tilbud" }), input("offer_price", "", "number")]),
+            ]),
+            [r.grapes, r.region, r.country].some(Boolean) ? el("div", { class: "small muted", text: [r.grapes, r.region, r.country].filter(Boolean).join(" · ") }) : null,
+          ]);
+          return { r, cb, node };
+        });
+        const addBtn = el("button", { type: "button", class: "btn block", style: "margin-top:12px" });
+        const update = () => {
+          const n = items.filter((x) => x.cb.checked).length;
+          addBtn.textContent = "Tilføj " + n + " valgte vine til smagningen";
+          addBtn.disabled = !n;
+        };
+        items.forEach((x) => { x.cb.onchange = update; box.appendChild(x.node); });
+        const all = el("button", { type: "button", class: "linkbtn small", style: "margin:6px 0 0", text: "Vælg alle / ingen", onclick: () => {
+          const on = !items.every((x) => x.cb.checked);
+          items.forEach((x) => (x.cb.checked = on));
+          update();
+        } });
+        box.insertBefore(all, box.firstChild);
+        addBtn.onclick = () => addFromList(items.filter((x) => x.cb.checked).map((x) => x.r), addBtn);
+        box.appendChild(addBtn);
+        update();
+      }
+
+      async function addFromList(rows, btn) {
+        btn.disabled = true;
+        if (!cellarWines) cellarWines = await apiGet("/api/wines?cellar=" + data.event.cellar_id);
+        let added = 0, failed = [];
+        for (const r of rows) {
+          btn.textContent = "Tilføjer " + (added + failed.length + 1) + " af " + rows.length + " …";
+          const vintage = r.vintage === "" || r.vintage === null ? null : Number(r.vintage);
+          const existing = cellarWines.find((w) => sameWine(w, { ...r, vintage }));
+          const prices = { normal_price: r.normal_price, offer_price: r.offer_price, currency: r.currency || "DKK" };
+          const payload = existing ? { wineId: existing.id, ...prices } : {
+            name: r.name, producer: r.producer, vintage: r.vintage, grapes: r.grapes, country: r.country,
+            region: r.region, appellation: r.appellation, color: r.color, ...prices,
+          };
+          try {
+            await apiSend("/api/events/" + eventId + "/wines", "POST", payload);
+            added++;
+          } catch (e) {
+            failed.push((r.name || "?") + ": " + e.message);
+          }
+        }
+        cellarWines = null;
+        $("listReview").innerHTML = "";
+        listStatus(failed.length ? "err" : "ok", ["✓ " + added + " vine tilføjet til smagningen." + (failed.length ? " Ikke tilføjet: " + failed.join("; ") : "")]);
+        await load();
+      }
+
       // ---- load + init ----------------------------------------------------
 
       async function load() {
@@ -372,6 +538,7 @@
           return flash("err", e.message);
         }
         renderHeader();
+        renderFiles();
         renderRanking();
         renderWines();
       }
@@ -387,6 +554,10 @@
         $("sheetClose").onclick = () => ($("sheet").hidden = true);
         $("addCancel").onclick = resetAdd;
         $("addForm").addEventListener("submit", saveAdd);
+        $("listCamBtn").onclick = () => $("listCam").click();
+        $("listFileBtn").onclick = () => $("listFile").click();
+        $("listCam").onchange = (e) => uploadLists(e.target.files);
+        $("listFile").onchange = (e) => uploadLists(e.target.files);
 
         let readEvent;
         $("editBtn").onclick = () => {

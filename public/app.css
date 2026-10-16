@@ -196,3 +196,13 @@ details summary { cursor: pointer; color: var(--accent); font-weight: 600; margi
 .chips.src .chip { padding: 5px 10px; font-size: 0.8rem; }
 .chip.more { color: var(--accent); border-style: dashed; }
 .chips-label { font-size: 0.75rem; color: var(--muted); }
+
+/* tasting wine list */
+.file-row { display: flex; align-items: center; gap: 10px; padding: 6px 0; border-top: 1px solid var(--line); }
+.file-row:first-child { border-top: none; }
+.file-thumb { width: 44px; height: 56px; object-fit: cover; border-radius: 6px; display: block; background: var(--panel-2); }
+.file-icon { font-size: 1.8rem; width: 44px; text-align: center; }
+.review-row { border-top: 1px solid var(--line); padding: 10px 0; }
+.review-row.done { opacity: 0.6; }
+.review-check { display: flex; align-items: center; gap: 8px; margin: 0; color: var(--muted); font-size: 0.8rem; }
+.review-check input { width: 22px; height: 22px; }

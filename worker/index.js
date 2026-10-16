@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import * as d1 from "./d1.js";
 import * as auth from "./auth.js";
-import { readLabel } from "./label.js";
+import { readLabel, readWineList } from "./label.js";
 
 const app = new Hono();
 const DB = (c) => c.env.DB;
@@ -155,6 +155,8 @@ app.delete("/api/cellars/:id", async (c) => {
   if (a.error) return deny(c, a.error);
   if (a.role !== "owner") return deny(c, 403);
   await deleteObjects(c, await d1.photoKeysForCellar(DB(c), cellarId));
+  const fileKeys = await d1.cellarEventFileKeys(DB(c), cellarId);
+  if (fileKeys.length) await c.env.PHOTOS.delete(fileKeys);
   await d1.deleteCellar(DB(c), cellarId);
   return c.json({ ok: true });
 });
@@ -671,9 +673,11 @@ app.get("/api/events/:id", async (c) => {
       avg_rating: rated.length ? Math.round((rated.reduce((x, t) => x + t.rating, 0) / rated.length) * 10) / 10 : null,
     };
   });
+  const files = await d1.eventFiles(db, ea.event.id).catch(() => []);
   return c.json({
     event: ea.event,
     wines,
+    files,
     me: ea.user.id,
     canManage: ea.role === "owner" || ea.event.created_by === ea.user.id,
   });
@@ -694,6 +698,8 @@ app.delete("/api/events/:id", async (c) => {
   if (ea.role !== "owner" && ea.event.created_by !== ea.user.id) {
     return c.json({ error: "Kun den der oprettede smagningen eller kælderens ejer kan slette den" }, 403);
   }
+  const keys = await d1.eventFileKeys(DB(c), ea.event.id).catch(() => []);
+  if (keys.length) await c.env.PHOTOS.delete(keys);
   await d1.deleteEvent(DB(c), ea.event.id);
   return c.json({ ok: true });
 });
@@ -770,6 +776,78 @@ app.post("/api/event-wines/:id/purchase", async (c) => {
   });
   const id = await d1.createEntry(DB(c), "purchases", d1.PURCHASE_FIELDS, wa.ew.wine_id, wa.user.id, p);
   return c.json({ id }, 201);
+});
+
+// ---- the tasting's wine list (photo or PDF) -------------------------------
+// Kept in R2 with the event and read with Claude into rows the user ticks off
+// before they are added as wines (via POST /api/events/:id/wines).
+
+const MAX_LIST_BYTES = 15 * 1024 * 1024;
+const LIST_TYPES = { "image/jpeg": "jpg", "application/pdf": "pdf" };
+
+app.post("/api/events/:id/files", async (c) => {
+  const ea = await eventAccess(c, Number(c.req.param("id")));
+  if (ea.error) return deny(c, ea.error);
+  const form = await c.req.formData();
+  const file = form.get("file");
+  if (!(file instanceof File) || !file.size) return c.json({ error: "Vælg et billede eller en PDF" }, 400);
+  const type = file.type === "application/pdf" || /\.pdf$/i.test(file.name) ? "application/pdf" : file.type;
+  if (!LIST_TYPES[type]) return c.json({ error: "Vinlisten skal være et billede eller en PDF" }, 400);
+  if (file.size > MAX_LIST_BYTES) return c.json({ error: "Filen er for stor (højst 15 MB)" }, 400);
+  const bytes = await file.arrayBuffer();
+  const key = `c${ea.event.cellar_id}/ev${ea.event.id}/${crypto.randomUUID()}.${LIST_TYPES[type]}`;
+  await c.env.PHOTOS.put(key, bytes, { httpMetadata: { contentType: type } });
+  const name = str(form.get("name") || file.name, 200);
+  const id = await d1.createEventFile(DB(c), { eventId: ea.event.id, key, contentType: type, name, userId: ea.user.id });
+  const out = { file: { id, content_type: type, name } };
+  if (form.get("read") === "1") Object.assign(out, await readList(c, bytes, type));
+  return c.json(out, 201);
+});
+
+async function readList(c, bytes, type) {
+  const { rows, error } = await readWineList(c.env.ANTHROPIC_API_KEY, bytes, type);
+  return { rows, aiError: error };
+}
+
+async function eventFileAccess(c, id) {
+  const f = await d1.getEventFile(DB(c), id);
+  if (!f) return { error: 404 };
+  const ea = await eventAccess(c, f.event_id);
+  return ea.error ? ea : { ...ea, file: f };
+}
+
+app.get("/api/event-files/:id", async (c) => {
+  const fa = await eventFileAccess(c, Number(c.req.param("id")));
+  if (fa.error) return deny(c, fa.error);
+  const obj = await c.env.PHOTOS.get(fa.file.r2_key);
+  if (!obj) return deny(c, 404);
+  const ext = LIST_TYPES[fa.file.content_type] || "bin";
+  const filename = (fa.file.name || "vinliste").replace(/[^\w.\- æøåÆØÅ]/g, "_").replace(/\.(pdf|jpe?g)$/i, "") + "." + ext;
+  return new Response(obj.body, {
+    headers: {
+      "Content-Type": fa.file.content_type,
+      "Content-Disposition": `inline; filename*=UTF-8''${encodeURIComponent(filename)}`,
+      "Cache-Control": "private, max-age=31536000, immutable",
+    },
+  });
+});
+
+// Read an already uploaded list again (e.g. after the first try failed).
+app.post("/api/event-files/:id/read", async (c) => {
+  const fa = await eventFileAccess(c, Number(c.req.param("id")));
+  if (fa.error) return deny(c, fa.error);
+  const obj = await c.env.PHOTOS.get(fa.file.r2_key);
+  if (!obj) return deny(c, 404);
+  return c.json(await readList(c, await obj.arrayBuffer(), fa.file.content_type));
+});
+
+app.delete("/api/event-files/:id", async (c) => {
+  const fa = await eventFileAccess(c, Number(c.req.param("id")));
+  if (fa.error) return deny(c, fa.error);
+  if (fa.role !== "owner" && fa.event.created_by !== fa.user.id && fa.file.created_by !== fa.user.id) return deny(c, 403);
+  await c.env.PHOTOS.delete(fa.file.r2_key);
+  await d1.deleteEventFile(DB(c), fa.file.id);
+  return c.json({ ok: true });
 });
 
 app.all("/api/*", (c) => deny(c, 404));

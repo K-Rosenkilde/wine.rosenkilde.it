@@ -41,10 +41,32 @@
         m.appendChild(el("div", { class: "banner ok", text }));
       }
 
+      // Which tastings have their wine list unfolded (per browser).
+      let openSet = new Set();
+      try { openSet = new Set(JSON.parse(localStorage.getItem("eventsOpen") || "[]")); } catch {}
+      const saveOpen = () => { try { localStorage.setItem("eventsOpen", JSON.stringify([...openSet])); } catch {} };
+      let toggles = [];
+
       async function load() {
         const box = $("list");
         box.innerHTML = "";
+        toggles = [];
         const rows = await apiGet("/api/events?" + Session.q());
+        const withWines = rows.filter((e) => (e.wine_list || []).length);
+        if (withWines.length > 1) {
+          const allOpen = () => withWines.every((e) => openSet.has(e.id));
+          const btn = el("button", { type: "button", class: "linkbtn small", style: "margin:0 0 8px" });
+          const drawAll = () => (btn.textContent = allOpen() ? "Fold alle vinlister ind ▴" : "Fold alle vinlister ud ▾");
+          btn.onclick = () => {
+            const open = !allOpen();
+            withWines.forEach((e) => (open ? openSet.add(e.id) : openSet.delete(e.id)));
+            saveOpen();
+            toggles.forEach((d) => d());
+            drawAll();
+          };
+          drawAll();
+          box.appendChild(el("div", { style: "text-align:right" }, [btn]));
+        }
         if (!rows.length) {
           box.appendChild(el("p", { class: "muted", text: "Ingen smagninger endnu — opret den første herunder." }));
           $("newCard").open = true;
@@ -61,10 +83,29 @@
               el("div", { class: "small muted", style: "text-align:right", text: count + " ›" }),
             ]),
           ]);
-          // The tasting's wines; ones met only here can be moved into the wine list.
-          for (const w of e.wine_list || []) {
+          // The tasting's wines, collapsible (state remembered per tasting in this browser).
+          const wl = e.wine_list || [];
+          const wineBox = el("div", { class: "event-wines" });
+          if (wl.length) {
+            const bought = wl.filter((w) => w.bought).length;
+            const wanted = wl.filter((w) => !w.bought && w.in_list === 2).length;
+            const toggle = el("button", { type: "button", class: "event-wines-toggle" });
+            const draw = () => {
+              const open = openSet.has(e.id);
+              wineBox.hidden = !open;
+              toggle.textContent = "🍷 " + wl.length + " vin" + (wl.length === 1 ? "" : "e") +
+                (bought ? " · 🛒 " + bought + " købt" : "") + (wanted ? " · ⭐ " + wanted + " vil købe" : "") + (open ? "  ▾" : "  ▸");
+              toggle.setAttribute("aria-expanded", String(open));
+            };
+            toggle.onclick = () => { openSet.has(e.id) ? openSet.delete(e.id) : openSet.add(e.id); saveOpen(); draw(); };
+            toggles.push(draw);
+            card.appendChild(toggle);
+            card.appendChild(wineBox);
+            draw();
+          }
+          for (const w of wl) {
             const label = [w.name, w.vintage].filter(Boolean).join(" ");
-            card.appendChild(el("div", { class: "event-wine-row" }, [
+            wineBox.appendChild(el("div", { class: "event-wine-row" }, [
               w.color ? el("span", { class: "dot", style: "background:" + COLOR_DOTS[w.color] }) : el("span", { class: "dot", style: "opacity:0" }),
               el("a", { href: "/wine?id=" + w.wine_id, class: "ew-name", text: label }),
               w.avg_rating !== null ? el("span", { class: "stars small", text: stars(w.avg_rating) }) : null,
